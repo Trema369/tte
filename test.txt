@@ -1,0 +1,12 @@
+this is now starting to look like a decent editor as u can see we are dooing evrything to make it good
+skrow neve siht fi ees ot gnitset tsuyj ma i
+now iw we are actually adding som e text
+
+int main(){
+    printf("hello world");
+}
+
+def main():
+    print("hello world from python")
+
+
