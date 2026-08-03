@@ -1,10 +1,11 @@
 module tte;
 
 import std::io, std::os;
-import libc::termios;
+import libc;
 import std::collections::list;
 import std::time;
 
+//tui stuff
 const String TTE_VERSION = "0.0.1";
 const int TTE_TAB_STOP   = 8;
 const int TTE_QUIT_TIMES = 3;
@@ -12,6 +13,7 @@ const CInt SIGWINCH      = 28;
 
 bool resize_pending;
 
+//engine stuff
 constdef EditorKey : inline int {
 	BACKSPACE  = 127,
 	ARROW_LEFT = 1000,
@@ -56,6 +58,7 @@ struct EditorConfig {
 	Termios orig_termios;
 }
 
+//tui stuff
 struct Winsize {
 	ushort ws_row;
 	ushort ws_col;
@@ -70,6 +73,7 @@ EditorConfig e;
 const usz VMIN  = 6;
 const usz VTIME = 5;
 
+//editor stuff
 macro char ctrl_key(k) => k & 0x1f;
 
 fn void die(String message) {
@@ -448,6 +452,7 @@ fn void editorSave() {
 	}
 	editorSetStatusMessage("Can't save! I/O error");
 }
+
 fn void editorProcessKeypress() {
 	static int quit_times = TTE_QUIT_TIMES;
 	int c                 = editorReadKey();
@@ -564,13 +569,13 @@ fn void editorDrawRows(DString* buf) {
 				if (welcome.len > e.screencols) welcome = welcome[..e.screencols - 1];
 				int padding = (e.screencols - welcome.len) / 2;
 				if (padding) {
-					buf.append("~");
+					//buf.append("~");
 					padding--;
 				}
 				while (padding--) buf.append(" ");
 				buf.append(welcome);
 			} else {
-				buf.append("~");
+				//buf.append("~");
 			}
 		} else {
 			String row = e.rows[filerow].render;
