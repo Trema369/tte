@@ -1,0 +1,40 @@
+{
+	"langrev": "1",
+	"warnings": [
+		"no-unused"
+	],
+	"dependency-search-paths": [
+		"lib"
+	],
+	"dependencies": [
+		"sdl2",
+		"opengl"
+	],
+	"linked-libraries": [
+		"SDL2",
+		"GL",
+		"stb"
+	],
+	"link-args": [
+		"-Lvendor"
+	],
+	"authors": [
+		"trema <trosky369@gmail.com>"
+	],
+	"version": "0.1.0",
+	"sources": [
+		"src/**"
+	],
+	"test-sources": [
+		"test/**"
+	],
+	"build-dir": "build",
+	"output": "build",
+	"targets": {
+		"tte-gui": {
+			"type": "executable"
+		}
+	},
+	"cpu": "generic",
+	"opt": "O0"
+}
