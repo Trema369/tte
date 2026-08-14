@@ -1,5 +1,7 @@
 module tte::term @if(env::ANDROID);
 
+alias Cc = char;
+
 bitstruct Tc_iflags : CUInt {
 	bool brkint : 1;
 	bool inpck : 4;

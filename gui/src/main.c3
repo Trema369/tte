@@ -16,9 +16,11 @@ Camera cam;
 uint vbo, vao, ebo;
 uint shaderProgram, texture;
 Matrix4f proj;
-int screenW = 800;
-int screenH = 600;
+int screenW ;
+int screenH ;
 int projLoc, modelLoc, uvRectLoc, textColorLoc;
+uint frames;
+uint fps_ms;
 
 float cam_y        = 0.0f;
 float cam_target_y = 0.0f;
@@ -27,8 +29,11 @@ bool cursor_moved;
 uint last_input_ms;
 const uint IDLE_MS = 500;
 
+const char[*] FONT_TTF = $embed("../assets/font.ttf");
 const String VSHADER      = "src/vertex.glsl";
 const String FSHADER      = "src/fragment.glsl";
+const char[*] VERT_SRC = $embed("vertex.glsl");
+const char[*] FRAG_SRC = $embed("fragment.glsl");
 const float LINE_HEIGHT   = 38.0f;
 const int MAX_QUADS       = 4096;
 const int FLOATS_PER_VERT = 4;
@@ -52,14 +57,16 @@ fn int main(String[] args) {
 	sdl::glSetAttribute(GLattr.GL_DOUBLEBUFFER, 1);
 
 	ZString title = "learn opengl";
-	Window* window = sdl::createWindow(
-		(char*)title,
-		sdl::WINDOWPOS_CENTERED_MASK,
-		sdl::WINDOWPOS_CENTERED_MASK,
-		800,
-		600,
-		0x00000022u
-	);
+    
+    DisplayMode dm;
+    sdl::getCurrentDisplayMode(0, &dm);
+    screenW = dm.w;
+    screenH = dm.h;
+
+    Window* window = sdl::createWindow((char*)title,
+	sdl::WINDOWPOS_CENTERED_MASK, sdl::WINDOWPOS_CENTERED_MASK,
+	screenW, screenH, 0x00000022u);
+
 	if (!window) {
 		io::printfn("createWindow failed: %s", (ZString)sdl::getError());
 		return 1;
@@ -75,7 +82,9 @@ fn int main(String[] args) {
 	defer sdl::glDeleteContext(ctx);
 
 	opengl::init(&sdl::glGetProcAddress)!!;
-	gl::viewport(0, 0, 800, 600);
+    int dw, dh;
+    sdl::glGetDrawableSize(window, &dw, &dh);
+    gl::viewport(0, 0, dw, dh);
 
 	gl::clearColor(0.067f, 0.067f, 0.067f, 1.0f);
 	Event event;
@@ -173,20 +182,22 @@ fn void load() {
 		data: indices,
 		usage: gl::GL_STATIC_DRAW
 	);
-	String vertexShaderSource = shader::load(VSHADER);
-	uint vertexShader         = gl::createShader(gl::GL_VERTEX_SHADER);
-	gl::shaderSource(vertexShader, 1, (char**)&vertexShaderSource, null);
-	gl::compileShader(vertexShader);
+    char* vp = &VERT_SRC[0];
+int vlen = VERT_SRC.len;
+uint vertexShader = gl::createShader(gl::GL_VERTEX_SHADER);
+gl::shaderSource(vertexShader, 1, &vp, &vlen);
+gl::compileShader(vertexShader);
 	int success;
 	char[512] infolog;
 	gl::getShaderiv(vertexShader, gl::GL_COMPILE_STATUS, &success);
 	if (!success) {
 		io::printn("Error shader compilation failed");
 	}
-	String fragmentShaderSource = shader::load(FSHADER);
-	uint fragmentShader         = gl::createShader(gl::GL_FRAGMENT_SHADER);
-	gl::shaderSource(fragmentShader, 1, (char**)&fragmentShaderSource, null);
-	gl::compileShader(fragmentShader);
+    char* fp = &FRAG_SRC[0];
+int flen = FRAG_SRC.len;
+uint fragmentShader = gl::createShader(gl::GL_FRAGMENT_SHADER);
+gl::shaderSource(fragmentShader, 1, &fp, &flen);
+gl::compileShader(fragmentShader);
 
 	defer {
 		gl::deleteShader(vertexShader);
@@ -224,7 +235,7 @@ fn void load() {
 	uvRectLoc = gl::getUniformLocation(shaderProgram, "uvRect");
 	textColorLoc = gl::getUniformLocation(shaderProgram, "textColor");
 	// gl::polygonMode(gl::GL_FRONT_AND_BACK, gl::GL_LINE);
-	font::bake("/home/trema/.local/share/fonts/MapleMono/MapleMono-Regular.ttf", 32.0f);
+    font::bake_bytes(FONT_TTF[..], 32.0f * font::OVERSAMPLE);
 	texture = font::atlas_tex;
 	gl::enable(gl::GL_BLEND);
 	gl::blendFunc(gl::GL_SRC_ALPHA, gl::GL_ONE_MINUS_SRC_ALPHA);
@@ -271,13 +282,13 @@ fn void render() {
 		alpha = 0.30f + 0.70f * (0.5f + 0.5f * math::cos(t * 3.2f));
 	}
 
-	float ct = cur_y - font::pixel_h * 0.78f;
+	float ct = cur_y - font::height() * 0.78f;
 	gl::uniform4f(textColorLoc, 0.85f, 0.85f, 0.95f, alpha);
 	push_quad(
 		cur_x,
 		ct,
-		cur_x + font::chardata[0].xadvance,
-		ct + font::pixel_h,
+		cur_x + font::advance(),
+		ct + font::height(),
 		font::WHITE_U,
 		font::WHITE_V,
 		font::WHITE_U,
@@ -286,6 +297,12 @@ fn void render() {
 	flush();
 
 	cam.follow(cur_x, cur_y, cw, ch);
+    frames++;
+if (now - fps_ms > 1000) {
+	io::printfn("fps %d  zoom %f  rows %d", frames, cam.zoom, core.numrows);
+	frames = 0;
+	fps_ms = now;
+}
 }
 
 fn void viewport_resize(int width, int height) {
@@ -296,24 +313,29 @@ fn void viewport_resize(int width, int height) {
 }
 
 fn float draw_text(String text, float x, float y) {
-	float xpos  = x;
-	float ypos  = y;
-	float tab_w = font::chardata[0].xadvance * (float)core.ft.tab_width;
+	float xpos = 0.0f; 
+    float ypos = 0.0f;
+	int tw = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
+    float tab_w = font::chardata[0].xadvance * (float)tw;   // atlas space
 
 	foreach (c : text) {
 		if (c == '\t') {
-			float rel = xpos - x;
-			xpos = x + (math::floor(rel / tab_w) + 1.0f) * tab_w;
+			xpos = (math::floor(xpos / tab_w) + 1.0f) * tab_w;
 			continue;
 		}
 		if (c < 32 || c >= 127) continue;
 
 		AlignedQuad q;
-		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H, (CInt)c - 32, &xpos, &ypos, &q, 1);
-		push_quad(q.x0, q.y0, q.x1, q.y1, q.s0, q.t0, q.s1, q.t1);
-	}
+		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H,
+			(CInt)c - 32, &xpos, &ypos, &q, 1);
 
-	return xpos;
+		push_quad(
+			x + q.x0 / font::OVERSAMPLE, y + q.y0 / font::OVERSAMPLE,
+			x + q.x1 / font::OVERSAMPLE, y + q.y1 / font::OVERSAMPLE,
+			q.s0, q.t0, q.s1, q.t1
+		);
+	}
+	return x + xpos / font::OVERSAMPLE;
 }
 
 fn void push_quad(float x0, float y0, float x1, float y1, float s0, float t0, float s1, float t1) {
@@ -342,22 +364,23 @@ fn void flush() {
 }
 
 fn float cursor_x(String chars, int cx) {
-	float xpos  = 0.0f; // was PAD_X
+	float xpos  = 0.0f;
 	float ypos  = 0.0f;
 	int tw      = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
-	float tab_w = font::chardata[0].xadvance * (float)tw;
+	float tab_w = font::chardata[0].xadvance * (float)tw;   // atlas space
 
 	for (int i = 0; i < cx && i < chars.len; i++) {
 		char c = chars[i];
 		if (c == '\t') {
-			xpos = (math::floor(xpos / tab_w) + 1.0f) * tab_w; // was xpos - PAD_X, then PAD_X + ...
+			xpos = (math::floor(xpos / tab_w) + 1.0f) * tab_w;
 			continue;
 		}
 		if (c < 32 || c >= 127) continue;
 		AlignedQuad q;
-		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H, (CInt)c - 32, &xpos, &ypos, &q, 1);
+		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H,
+			(CInt)c - 32, &xpos, &ypos, &q, 1);
 	}
-	return xpos;
+	return xpos / font::OVERSAMPLE;      // ← the only change
 }
 
 fn float measure_width() {
@@ -367,7 +390,7 @@ fn float measure_width() {
 	if (hi > core.numrows) hi = core.numrows;
 
 	int tw       = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
-	float adv    = font::chardata[0].xadvance;
+	float adv    = font::advance();
 	float widest = adv;
 
 	for (int i = lo; i < hi; i++) {
