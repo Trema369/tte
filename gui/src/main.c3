@@ -16,8 +16,8 @@ Camera cam;
 uint vbo, vao, ebo;
 uint shaderProgram, texture;
 Matrix4f proj;
-int screenW ;
-int screenH ;
+int screenW;
+int screenH;
 int projLoc, modelLoc, uvRectLoc, textColorLoc;
 uint frames;
 uint fps_ms;
@@ -29,11 +29,11 @@ bool cursor_moved;
 uint last_input_ms;
 const uint IDLE_MS = 500;
 
-const char[*] FONT_TTF = $embed("../assets/font.ttf");
+const char[*] FONT_TTF    = $embed("../assets/font.ttf");
 const String VSHADER      = "src/vertex.glsl";
 const String FSHADER      = "src/fragment.glsl";
-const char[*] VERT_SRC = $embed("vertex.glsl");
-const char[*] FRAG_SRC = $embed("fragment.glsl");
+const char[*] VERT_SRC    = $embed("vertex.glsl");
+const char[*] FRAG_SRC    = $embed("fragment.glsl");
 const float LINE_HEIGHT   = 38.0f;
 const int MAX_QUADS       = 4096;
 const int FLOATS_PER_VERT = 4;
@@ -44,6 +44,8 @@ const int MEASURE_ROWS    = 20;
 
 float[MAX_QUADS * VERTS_PER_QUAD * FLOATS_PER_VERT] batch;
 int batch_verts;
+ulong perf_last;
+ulong perf_freq;
 
 fn int main(String[] args) {
 	if (sdl::init(sdl::INIT_VIDEO) != 0) {
@@ -57,15 +59,19 @@ fn int main(String[] args) {
 	sdl::glSetAttribute(GLattr.GL_DOUBLEBUFFER, 1);
 
 	ZString title = "learn opengl";
-    
-    DisplayMode dm;
-    sdl::getCurrentDisplayMode(0, &dm);
-    screenW = dm.w;
-    screenH = dm.h;
+	DisplayMode dm;
+	sdl::getCurrentDisplayMode(0, &dm);
+	screenW = (int)((float)dm.w * 0.85f);
+	screenH = (int)((float)dm.h * 0.85f);
 
-    Window* window = sdl::createWindow((char*)title,
-	sdl::WINDOWPOS_CENTERED_MASK, sdl::WINDOWPOS_CENTERED_MASK,
-	screenW, screenH, 0x00000022u);
+	Window* window = sdl::createWindow(
+		(char*)title,
+		sdl::WINDOWPOS_CENTERED_MASK,
+		sdl::WINDOWPOS_CENTERED_MASK,
+		screenW,
+		screenH,
+		0x00000022u
+	);
 
 	if (!window) {
 		io::printfn("createWindow failed: %s", (ZString)sdl::getError());
@@ -75,6 +81,7 @@ fn int main(String[] args) {
 
 	defer sdl::destroyWindow(window);
 	GLContext ctx = sdl::glCreateContext(window);
+	sdl::glSetSwapInterval(1);
 	if (!ctx) {
 		io::printfn("GL context failed: %s", (ZString)sdl::getError());
 		return 1;
@@ -82,9 +89,15 @@ fn int main(String[] args) {
 	defer sdl::glDeleteContext(ctx);
 
 	opengl::init(&sdl::glGetProcAddress)!!;
-    int dw, dh;
-    sdl::glGetDrawableSize(window, &dw, &dh);
-    gl::viewport(0, 0, dw, dh);
+
+	int dw;
+	int dh;
+
+	sdl::glGetDrawableSize(window, &dw, &dh);
+	gl::viewport(0, 0, dw, dh);
+
+	screenW = dw;
+	screenH = dh;
 
 	gl::clearColor(0.067f, 0.067f, 0.067f, 1.0f);
 	Event event;
@@ -92,6 +105,8 @@ fn int main(String[] args) {
 	bool running = true;
 
 	load();
+	perf_freq = sdl::getPerformanceFrequency();
+	perf_last = sdl::getPerformanceCounter();
 	cam.init((float)screenW, (float)screenH);
 	core.init();
 	if (args.len >= 2) core.open(args[1]);
@@ -109,7 +124,7 @@ fn int main(String[] args) {
 				&& event.window.event == (char)WindowEventID.WINDOWEVENT_SIZE_CHANGED) {
 				int newWidth  = event.window.data1;
 				int newHeight = event.window.data2;
-				viewport_resize(newWidth, newHeight);
+				viewport_resize(window, newWidth, newHeight);
 			}
 			if ((int)event.type == 1027) {
 				cam.pan(0.0f, -(float)event.wheel.y * LINE_HEIGHT * 3.0f);
@@ -182,22 +197,22 @@ fn void load() {
 		data: indices,
 		usage: gl::GL_STATIC_DRAW
 	);
-    char* vp = &VERT_SRC[0];
-int vlen = VERT_SRC.len;
-uint vertexShader = gl::createShader(gl::GL_VERTEX_SHADER);
-gl::shaderSource(vertexShader, 1, &vp, &vlen);
-gl::compileShader(vertexShader);
+	char* vp          = &VERT_SRC[0];
+	int vlen          = VERT_SRC.len;
+	uint vertexShader = gl::createShader(gl::GL_VERTEX_SHADER);
+	gl::shaderSource(vertexShader, 1, &vp, &vlen);
+	gl::compileShader(vertexShader);
 	int success;
 	char[512] infolog;
 	gl::getShaderiv(vertexShader, gl::GL_COMPILE_STATUS, &success);
 	if (!success) {
 		io::printn("Error shader compilation failed");
 	}
-    char* fp = &FRAG_SRC[0];
-int flen = FRAG_SRC.len;
-uint fragmentShader = gl::createShader(gl::GL_FRAGMENT_SHADER);
-gl::shaderSource(fragmentShader, 1, &fp, &flen);
-gl::compileShader(fragmentShader);
+	char* fp            = &FRAG_SRC[0];
+	int flen            = FRAG_SRC.len;
+	uint fragmentShader = gl::createShader(gl::GL_FRAGMENT_SHADER);
+	gl::shaderSource(fragmentShader, 1, &fp, &flen);
+	gl::compileShader(fragmentShader);
 
 	defer {
 		gl::deleteShader(vertexShader);
@@ -235,15 +250,17 @@ gl::compileShader(fragmentShader);
 	uvRectLoc = gl::getUniformLocation(shaderProgram, "uvRect");
 	textColorLoc = gl::getUniformLocation(shaderProgram, "textColor");
 	// gl::polygonMode(gl::GL_FRONT_AND_BACK, gl::GL_LINE);
-    font::bake_bytes(FONT_TTF[..], 32.0f * font::OVERSAMPLE);
+	font::bake_bytes(FONT_TTF[..], 32.0f * font::OVERSAMPLE);
 	texture = font::atlas_tex;
 	gl::enable(gl::GL_BLEND);
 	gl::blendFunc(gl::GL_SRC_ALPHA, gl::GL_ONE_MINUS_SRC_ALPHA);
 }
 
 fn void render() {
-	uint now = sdl::getTicks();
-	float dt = (float)(now - last_ticks) / 1000.0f;
+	ulong pnow = sdl::getPerformanceCounter();
+	float dt   = (float)(pnow - perf_last) / (float)perf_freq;
+	perf_last = pnow;
+	uint now = sdl::getTicks(); // keep for blink + fps
 	last_ticks = now;
 	float cw = measure_width();
 	float ch = (float)(core.numrows + 1) * LINE_HEIGHT;
@@ -297,26 +314,29 @@ fn void render() {
 	flush();
 
 	cam.follow(cur_x, cur_y, cw, ch);
-    frames++;
-if (now - fps_ms > 1000) {
-	io::printfn("fps %d  zoom %f  rows %d", frames, cam.zoom, core.numrows);
-	frames = 0;
-	fps_ms = now;
-}
+	frames++;
+	if (now - fps_ms > 1000) {
+		io::printfn("fps %d  zoom %f  rows %d", frames, cam.zoom, core.numrows);
+		frames = 0;
+		fps_ms = now;
+	}
 }
 
-fn void viewport_resize(int width, int height) {
-	gl::viewport(0, 0, width, height);
-	screenW = width;
-	screenH = height;
-	cam.resize((float)width, (float)height);
+fn void viewport_resize(Window* window, int width, int height) {
+	int dw;
+	int dh;
+	sdl::glGetDrawableSize(window, &dw, &dh);
+	gl::viewport(0, 0, dw, dh);
+	screenW = dw;
+	screenH = dh;
+	cam.resize((float)dw, (float)dh);
 }
 
 fn float draw_text(String text, float x, float y) {
-	float xpos = 0.0f; 
-    float ypos = 0.0f;
-	int tw = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
-    float tab_w = font::chardata[0].xadvance * (float)tw;   // atlas space
+	float xpos  = 0.0f;
+	float ypos  = 0.0f;
+	int tw      = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
+	float tab_w = font::chardata[0].xadvance * (float)tw; // atlas space
 
 	foreach (c : text) {
 		if (c == '\t') {
@@ -326,13 +346,17 @@ fn float draw_text(String text, float x, float y) {
 		if (c < 32 || c >= 127) continue;
 
 		AlignedQuad q;
-		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H,
-			(CInt)c - 32, &xpos, &ypos, &q, 1);
+		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H, (CInt)c - 32, &xpos, &ypos, &q, 1);
 
 		push_quad(
-			x + q.x0 / font::OVERSAMPLE, y + q.y0 / font::OVERSAMPLE,
-			x + q.x1 / font::OVERSAMPLE, y + q.y1 / font::OVERSAMPLE,
-			q.s0, q.t0, q.s1, q.t1
+			x + q.x0 / font::OVERSAMPLE,
+			y + q.y0 / font::OVERSAMPLE,
+			x + q.x1 / font::OVERSAMPLE,
+			y + q.y1 / font::OVERSAMPLE,
+			q.s0,
+			q.t0,
+			q.s1,
+			q.t1
 		);
 	}
 	return x + xpos / font::OVERSAMPLE;
@@ -367,7 +391,7 @@ fn float cursor_x(String chars, int cx) {
 	float xpos  = 0.0f;
 	float ypos  = 0.0f;
 	int tw      = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
-	float tab_w = font::chardata[0].xadvance * (float)tw;   // atlas space
+	float tab_w = font::chardata[0].xadvance * (float)tw; // atlas space
 
 	for (int i = 0; i < cx && i < chars.len; i++) {
 		char c = chars[i];
@@ -377,10 +401,9 @@ fn float cursor_x(String chars, int cx) {
 		}
 		if (c < 32 || c >= 127) continue;
 		AlignedQuad q;
-		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H,
-			(CInt)c - 32, &xpos, &ypos, &q, 1);
+		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H, (CInt)c - 32, &xpos, &ypos, &q, 1);
 	}
-	return xpos / font::OVERSAMPLE;      // ← the only change
+	return xpos / font::OVERSAMPLE; // ← the only change
 }
 
 fn float measure_width() {
