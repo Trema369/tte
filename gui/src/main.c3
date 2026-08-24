@@ -70,7 +70,7 @@ fn int main(String[] args) {
 		sdl::WINDOWPOS_CENTERED_MASK,
 		screenW,
 		screenH,
-		0x00000022u
+		0x00002022u
 	);
 
 	if (!window) {
@@ -81,12 +81,12 @@ fn int main(String[] args) {
 
 	defer sdl::destroyWindow(window);
 	GLContext ctx = sdl::glCreateContext(window);
-	sdl::glSetSwapInterval(1);
 	if (!ctx) {
 		io::printfn("GL context failed: %s", (ZString)sdl::getError());
 		return 1;
 	}
 	defer sdl::glDeleteContext(ctx);
+	sdl::glSetSwapInterval(1);
 
 	opengl::init(&sdl::glGetProcAddress)!!;
 

@@ -8,7 +8,7 @@ const float ZOOM_HYST  = 0.12f; // ignore changes under 12%
 const float MOVE_SPEED = 2.0f;
 const float ZOOM_SPEED = 2.0f; // same rate
 const float MAX_ZOOM   = 3.0f;
-
+const float MARGIN     = 24.0f;
 
 struct Camera {
 	float x, y; // top-left of view, document space
@@ -108,7 +108,6 @@ fn void Camera.follow(&self, float cursor_x, float cursor_y, float content_w, fl
 	if (content_h < 1.0f) content_h = 1.0f;
 	if (content_w > 1000.0f) content_w = 1000.0f;
 
-	// zoom to fit both axes; the tighter constraint wins
 	float zw = self.view_w / 3.0f / (content_w * 0.75f);
 	float zh = self.view_h / content_h;
 	float ts = math::min(zw, zh);
@@ -119,15 +118,17 @@ fn void Camera.follow(&self, float cursor_x, float cursor_y, float content_w, fl
 	float vw = self.view_w / ts;
 	float vh = self.view_h / ts;
 
-	// horizontal: centre the content while it fits, then dead-zone follow
-	if (content_w < vw) {
-		self.target_x = content_w * 0.5f;
-	} else {
-		float third  = vw / 3.0f;
-		float offset = cursor_x - third;
-		if (offset < 0.0f) offset = 0.0f;
-		self.target_x = third + offset;
-	}
+	// horizontal: left-aligned, cursor kept inside a dead zone
+	float left = self.target_x - vw * 0.5f;
+
+	float lo_edge = left + vw * 0.20f;
+	float hi_edge = left + vw * 0.80f;
+	if (cursor_x < lo_edge) left = cursor_x - vw * 0.20f;
+	if (cursor_x > hi_edge) left = cursor_x - vw * 0.80f;
+	float margin = vw * 0.35f;
+	if (left < -margin) left = -margin;
+
+	self.target_x = left + vw * 0.5f;
 
 	// vertical: centre the content while it fits, then follow the cursor
 	if (content_h < vh) {
@@ -138,20 +139,22 @@ fn void Camera.follow(&self, float cursor_x, float cursor_y, float content_w, fl
 
 	self.clamp_target();
 }
-
 fn void Camera.set_content(&self, float w, float h) {
 	self.doc_w = w;
 	self.doc_h = h;
 }
 fn void Camera.clamp_target(&self) {
-	float vh =  self.view_h / self.target_zoom;
+	float vh = self.view_h / self.target_zoom;
+	float vw = self.view_w / self.target_zoom;
+
 	float lo = -vh * 0.25f;
 	float hi =  self.doc_h + vh * 0.25f;
 	if (self.target_y < lo) self.target_y = lo;
 	if (self.target_y > hi) self.target_y = hi;
 
-	float vw = self.view_w / self.target_zoom;
-	if (self.target_x < 0.0f) self.target_x = 0.0f;
+	float margin =  vw * 0.35f;
+	float min_x  = -margin + vw * 0.5f;
+	if (self.target_x < min_x) self.target_x = min_x;
 	if (self.target_x > self.doc_w + vw * 0.5f) self.target_x = self.doc_w + vw * 0.5f;
 }
 fn void Camera.snap(&self) {
