@@ -5,10 +5,10 @@ import sdl;
 import opengl::gl;
 import shader;
 import textures;
-//import font;
-//import stbtt;
-//import core;
+import stbtt;
+import core;
 import camera;
+import font;
 
 EditorCore core;
 Camera cam;
@@ -16,6 +16,7 @@ Camera cam;
 uint vbo, vao, ebo;
 uint shaderProgram, texture;
 Matrix4f proj;
+Matrix4f screen_proj;
 int screenW;
 int screenH;
 int projLoc, modelLoc, uvRectLoc, textColorLoc;
@@ -29,11 +30,11 @@ bool cursor_moved;
 uint last_input_ms;
 const uint IDLE_MS = 500;
 
-const char[*] FONT_TTF    = $embed("../assets/font.ttf");
-const String VSHADER      = "src/vertex.glsl";
-const String FSHADER      = "src/fragment.glsl";
-const char[*] VERT_SRC    = $embed("vertex.glsl");
-const char[*] FRAG_SRC    = $embed("fragment.glsl");
+const char[*] FONT_TTF    = $embed("../../assets/font.ttf");
+const String VSHADER      = "../shaders/vertex.glsl";
+const String FSHADER      = "../shaders/fragment.glsl";
+const char[*] VERT_SRC    = $embed("../shaders/vertex.glsl");
+const char[*] FRAG_SRC    = $embed("../shaders/fragment.glsl");
 const float LINE_HEIGHT   = 38.0f;
 const int MAX_QUADS       = 4096;
 const int FLOATS_PER_VERT = 4;
@@ -47,32 +48,7 @@ int batch_verts;
 ulong perf_last;
 ulong perf_freq;
 
-fn int main(String[] args) {
-	if (sdl::init(sdl::INIT_VIDEO) != 0) {
-		io::printfn("SDL init failed: %s", (ZString)sdl::getError());
-	}
-	defer sdl::quit();
-
-	sdl::glSetAttribute(GLattr.GL_CONTEXT_MAJOR_VERSION, 3);
-	sdl::glSetAttribute(GLattr.GL_CONTEXT_MINOR_VERSION, 3);
-	sdl::glSetAttribute(GLattr.GL_CONTEXT_PROFILE_MASK, 0x0001);
-	sdl::glSetAttribute(GLattr.GL_DOUBLEBUFFER, 1);
-
-	ZString title = "learn opengl";
-	DisplayMode dm;
-	sdl::getCurrentDisplayMode(0, &dm);
-	screenW = (int)((float)dm.w * 0.85f);
-	screenH = (int)((float)dm.h * 0.85f);
-
-	Window* window = sdl::createWindow(
-		(char*)title,
-		sdl::WINDOWPOS_CENTERED_MASK,
-		sdl::WINDOWPOS_CENTERED_MASK,
-		screenW,
-		screenH,
-		0x00002022u
-	);
-
+fn int init(String[] args, Window* window) {
 	if (!window) {
 		io::printfn("createWindow failed: %s", (ZString)sdl::getError());
 		return 1;
@@ -430,4 +406,16 @@ fn float measure_width() {
 		if (w > widest) widest = w;
 	}
 	return widest;
+}
+
+fn void use_screen_space() {
+	flush();
+	screen_proj = matrix::ortho{float}(0.0f, (float)screenW, (float)screenH, 0.0f, -1.0f, 1.0f);
+	gl::uniformMatrix4fv(projLoc, 1, gl::GL_FALSE, &screen_proj.m[0]);
+}
+
+fn void solid(float x, float y, float w, float h, float r, float g, float b, float a) {
+	gl::uniform4f(textColorLoc, r, g, b, a);
+	push_quad(x, y, x + w, y + h, font::WHITE_U, font::WHITE_V, font::WHITE_U, font::WHITE_V);
+	flush();
 }

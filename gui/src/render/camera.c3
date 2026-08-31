@@ -119,17 +119,27 @@ fn void Camera.follow(&self, float cursor_x, float cursor_y, float content_w, fl
 	float vh = self.view_h / ts;
 
 	// horizontal: left-aligned, cursor kept inside a dead zone
-	float left = self.target_x - vw * 0.5f;
 
-	float lo_edge = left + vw * 0.20f;
-	float hi_edge = left + vw * 0.80f;
-	if (cursor_x < lo_edge) left = cursor_x - vw * 0.20f;
-	if (cursor_x > hi_edge) left = cursor_x - vw * 0.80f;
-	float margin = vw * 0.35f;
-	if (left < -margin) left = -margin;
+	float margin = vw * 0.04f;
 
+	// mode A: cursor centred
+	float centred = cursor_x - vw * 0.5f;
+
+	// mode B: left-aligned with a dead zone
+	float aligned = self.target_x - vw * 0.5f;
+	float lo_edge = aligned + vw * 0.20f;
+	float hi_edge = aligned + vw * 0.80f;
+	if (cursor_x < lo_edge) aligned = cursor_x - vw * 0.20f;
+	if (cursor_x > hi_edge) aligned = cursor_x - vw * 0.80f;
+	if (aligned < -margin) aligned = -margin;
+
+	// blend: fully centred below 15% of the view, fully aligned above 50%
+	float t = (content_w - vw * 0.15f) / (vw * 0.35f);
+	if (t < 0.0f) t = 0.0f;
+	if (t > 1.0f) t = 1.0f;
+
+	float left = centred + (aligned - centred) * t;
 	self.target_x = left + vw * 0.5f;
-
 	// vertical: centre the content while it fits, then follow the cursor
 	if (content_h < vh) {
 		self.target_y = content_h * 0.5f;
@@ -143,6 +153,7 @@ fn void Camera.set_content(&self, float w, float h) {
 	self.doc_w = w;
 	self.doc_h = h;
 }
+
 fn void Camera.clamp_target(&self) {
 	float vh = self.view_h / self.target_zoom;
 	float vw = self.view_w / self.target_zoom;
@@ -152,9 +163,12 @@ fn void Camera.clamp_target(&self) {
 	if (self.target_y < lo) self.target_y = lo;
 	if (self.target_y > hi) self.target_y = hi;
 
-	float margin =  vw * 0.35f;
-	float min_x  = -margin + vw * 0.5f;
-	if (self.target_x < min_x) self.target_x = min_x;
+	if (self.doc_w >= vw * 0.25f) {
+		float margin =  vw * 0.04f;
+		float min_x  = -margin + vw * 0.5f;
+		if (self.target_x < min_x) self.target_x = min_x;
+	}
+
 	if (self.target_x > self.doc_w + vw * 0.5f) self.target_x = self.doc_w + vw * 0.5f;
 }
 fn void Camera.snap(&self) {
