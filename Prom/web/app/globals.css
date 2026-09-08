@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Theme tokens. next/font sets the --font-* family vars on <html>; we alias
+   them here so `font-serif` / `font-script` / `font-sans` just work.
+--------------------------------------------------------------------------- */
+@theme {
+  --font-serif: var(--font-cormorant), Georgia, "Times New Roman", serif;
+  --font-script: var(--font-parisienne), "Segoe Script", "Brush Script MT", cursive;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --color-ink: #150c10;
+  --color-night: #2a1a22;
+  --color-plum: #3a2431;
+  --color-rose: #e8a0b4;
+  --color-rose-bright: #f6cdd9;
+  --color-blush: #f3d9c9;
+  --color-crimson: #c2415f;
+  --color-crimson-deep: #a8324f;
+  --color-cream: #f7ede8;
+  --color-gold: #e6c79c;
+  --color-slate: #6b6b78;
+  --color-slate-deep: #26232b;
+
+  --shadow-glow: 0 0 40px -8px rgba(232, 160, 180, 0.45);
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100dvh;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-cream);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--color-crimson);
+  color: var(--color-cream);
+}
+
+/* Nice default focus ring for the whole gesture */
+:focus-visible {
+  outline: 2px solid var(--color-rose-bright);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+   Stage backgrounds — hand-built gradients standing in for the 4 photos.
+   Drop real images into /public/images and swap `.stage-*` for a
+   `background-image: url(...)` in Stage.tsx when you have them.
+--------------------------------------------------------------------------- */
+.stage-gate {
+  background:
+    radial-gradient(115% 85% at 50% 8%, rgba(230, 199, 156, 0.16), transparent 55%),
+    radial-gradient(130% 100% at 50% 0%, #3f2836 0%, #241620 45%, #150c10 100%);
+}
+.stage-ask {
+  background:
+    radial-gradient(90% 70% at 82% 12%, rgba(246, 205, 217, 0.2), transparent 55%),
+    radial-gradient(120% 95% at 30% 6%, rgba(230, 199, 156, 0.14), transparent 50%),
+    linear-gradient(160deg, #3a2431 0%, #221521 55%, #150c10 100%);
+}
+.stage-yes {
+  background:
+    radial-gradient(120% 90% at 50% 4%, #fbe6d8 0%, #f3c9d3 34%, #d67a97 72%, #a8324f 120%);
+}
+.stage-no {
+  background:
+    radial-gradient(120% 90% at 50% 0%, #46424f 0%, #2c2933 55%, #17131a 110%);
+}
+
+/* Soft drifting bokeh, layered behind content on the warm stages */
+.bokeh {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    radial-gradient(circle at 18% 30%, rgba(255, 224, 178, 0.55), transparent 22%),
+    radial-gradient(circle at 78% 20%, rgba(246, 205, 217, 0.5), transparent 18%),
+    radial-gradient(circle at 62% 68%, rgba(255, 213, 170, 0.35), transparent 20%),
+    radial-gradient(circle at 32% 82%, rgba(246, 205, 217, 0.3), transparent 16%),
+    radial-gradient(circle at 88% 58%, rgba(255, 224, 178, 0.3), transparent 14%);
+  filter: blur(2px);
+  animation: drift 26s ease-in-out infinite alternate;
+}
+.bokeh--dim {
+  opacity: 0.35;
+  filter: blur(3px) saturate(0.6);
+}
+
+/* Film grain overlay (tiny inline SVG noise) */
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.06;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Vignette to pull focus toward the centre copy */
+.vignette::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 45%, transparent 40%, rgba(10, 6, 8, 0.55) 100%);
+}
+.vignette--heavy::before {
+  background: radial-gradient(120% 90% at 50% 45%, transparent 28%, rgba(8, 5, 9, 0.72) 100%);
+}
+
+/* ---------------------------------------------------------------------------
+   Keyframes
+--------------------------------------------------------------------------- */
+@keyframes drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(-3%, -2%, 0) scale(1.08);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+}
+.heart-pulse {
+  animation: pulse-soft 2.4s ease-in-out infinite;
+}
+
+@keyframes rise {
+  0% {
+    transform: translateY(10vh) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(-110vh) rotate(240deg);
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Reduced motion — kill the ambient animation, keep the site usable
+--------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .bokeh,
+  .heart-pulse {
+    animation: none;
+  }
+}
+
+/* The pink handwritten script — kept for single hero words only
+   ("special", "prom?"). Longer phrases use serif italic so they stay readable. */
+.accent {
+  font-family: var(--font-script);
+  color: var(--color-rose);
+  font-weight: 400;
+  line-height: 1.15;
+}

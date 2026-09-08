@@ -1,0 +1,29 @@
+# env
+.env
+.env.local
+
+# node / next
+web/node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+web/.pnpm-store/
+
+# go
+server/prom-server
+server/tmp/
+
+# runtime data (answers get written here in dev)
+server/data/*.json
+
+# assets you drop in locally
+web/public/audio/*.mp3
+web/public/audio/*.ogg
+web/public/images/*.jpg
+web/public/images/*.jpeg
+web/public/images/*.png
+web/public/images/*.webp
+
+# misc
+.DS_Store
+*.log
