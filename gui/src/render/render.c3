@@ -10,6 +10,28 @@ import core;
 import camera;
 import font;
 import tte::ui;
+import highlight;
+
+enum Mode { NORMAL, INSERT, VISUAL, VISUAL_LINE }
+
+Mode mode = Mode.NORMAL;
+int sel_x, sel_y;
+char pending;
+char pending2;
+
+const float[4][11] PALETTE = {
+	{ 0.85f, 0.85f, 0.87f, 1.0f },   // 0 default / variable
+	{ 0.98f, 0.75f, 0.35f, 1.0f },   // 1 keyword
+	{ 0.45f, 0.50f, 0.55f, 1.0f },   // 2 comment
+	{ 0.55f, 0.80f, 0.45f, 1.0f },   // 3 string
+	{ 0.80f, 0.60f, 0.95f, 1.0f },   // 4 number
+	{ 0.45f, 0.75f, 0.90f, 1.0f },   // 5 type
+	{ 0.95f, 0.55f, 0.55f, 1.0f },   // 6 constant / boolean
+	{ 0.60f, 0.80f, 0.98f, 1.0f },   // 7 function
+	{ 0.85f, 0.75f, 0.60f, 1.0f },   // 8 member
+	{ 0.90f, 0.70f, 0.85f, 1.0f },   // 9 parameter
+	{ 0.55f, 0.55f, 0.60f, 1.0f }    // 10 punctuation / operator
+};
 
 EditorCore core;
 Camera cam;
@@ -38,7 +60,7 @@ const char[*] VERT_SRC    = $embed("../shaders/vertex.glsl");
 const char[*] FRAG_SRC    = $embed("../shaders/fragment.glsl");
 const float LINE_HEIGHT   = 38.0f;
 const int MAX_QUADS       = 4096;
-const int FLOATS_PER_VERT = 4;
+const int FLOATS_PER_VERT = 8;
 const int VERTS_PER_QUAD  = 6;
 const float PAD_X         = 16.0f;
 const float PAD_Y         = 12.0f;
@@ -87,12 +109,13 @@ fn void do_save()
 	}
 }
 
-fn int init(String[] args, Window* window)
+
+fn void init(String[] args, Window* window)
 {
 	if (!window)
 	{
 		io::printfn("createWindow failed: %s", (ZString)sdl::getError());
-		return 1;
+//		return 1;
 	}
 	sdl::startTextInput();
 
@@ -101,7 +124,7 @@ fn int init(String[] args, Window* window)
 	if (!ctx)
 	{
 		io::printfn("GL context failed: %s", (ZString)sdl::getError());
-		return 1;
+//		return 1;
 	}
 	defer sdl::glDeleteContext(ctx);
 	sdl::glSetSwapInterval(1);
@@ -127,6 +150,7 @@ fn int init(String[] args, Window* window)
 	perf_last = sdl::getPerformanceCounter();
 	cam.init((float)screenW, (float)screenH);
 	core.init();
+    highlight::init();
 	if (args.len >= 2) core.open(args[1]);
 
 	float cw = measure_width();
@@ -185,7 +209,7 @@ fn int init(String[] args, Window* window)
 						}
 					}
 				}
-				else
+				else if(mode == Mode.INSERT)
 				{
 					foreach (che : txt.str_view()) core.insertChar(che);
 					cam.release();
@@ -208,27 +232,33 @@ fn int init(String[] args, Window* window)
 				}
 				else
 				{
-					if (ctrl && sym == 115)
-					{
-						do_save();
-					}
-					else
-					{
-						switch (sym)
-						{
-							case 13: core.insertNewline();
-							case 8: core.delChar();
-							case 9: core.insertTab();
-							case 1073741904: core.moveCursor(Direction.LEFT);
-							case 1073741903: core.moveCursor(Direction.RIGHT);
-							case 1073741906: core.moveCursor(Direction.UP);
-							case 1073741905: core.moveCursor(Direction.DOWN);
-							default: break;
-						}
-					}
-					cam.release();
-					last_input_ms = sdl::getTicks();
-				}
+		if (ctrl && sym == 115)
+		{
+			do_save();
+		}
+		else if (mode == Mode.INSERT)
+		{
+			switch (sym)
+			{
+				case 27: mode = Mode.NORMAL;
+				case 13: core.insertNewline();
+				case 8:  core.delChar();
+				case 9:  core.insertTab();
+				case 1073741904: core.moveCursor(Direction.LEFT);
+				case 1073741903: core.moveCursor(Direction.RIGHT);
+				case 1073741906: core.moveCursor(Direction.UP);
+				case 1073741905: core.moveCursor(Direction.DOWN);
+				default: break;
+			}
+		}
+		else
+		{
+			normal_key(sym);
+		}
+		cam.release();
+		last_input_ms = sdl::getTicks();
+	}
+
 			}
 		}
 		gl::clear(gl::GL_COLOR_BUFFER_BIT);
@@ -236,7 +266,6 @@ fn int init(String[] args, Window* window)
 		sdl::glSwapWindow(window);
 	}
 
-	return 0;
 }
 
 fn void load()
@@ -305,7 +334,7 @@ fn void load()
 		size: 2,
 		type: gl::GL_FLOAT,
 		normalized: gl::GL_FALSE,
-		stride: 4 * float::size,
+		stride: 8 * float::size,
 		pointer: (void*)0
 	);
 	gl::enableVertexAttribArray(0);
@@ -315,10 +344,12 @@ fn void load()
 		size: 2,
 		type: gl::GL_FLOAT,
 		normalized: gl::GL_FALSE,
-		stride: 4 * float::size,
+		stride: 8 * float::size,
 		pointer: (void*)(2 * float::size)
 	);
 	gl::enableVertexAttribArray(1);
+    	gl::vertexAttribPointer(2, 4, gl::GL_FLOAT, gl::GL_FALSE, 8 * float::size, (void*)(4 * float::size));
+	gl::enableVertexAttribArray(2);
 
 	projLoc = gl::getUniformLocation(shaderProgram, "projection");
 	if (projLoc == -1) io::printn("warning: projection uniform not found");
@@ -333,6 +364,7 @@ fn void load()
 
 fn void render()
 {
+    highlight::refresh(&core);
 	ulong pnow = sdl::getPerformanceCounter();
 	float dt   = (float)(pnow - perf_last) / (float)perf_freq;
 	perf_last = pnow;
@@ -341,14 +373,12 @@ fn void render()
 	float cw = measure_width();
 	float ch = (float)(core.numrows + 1) * LINE_HEIGHT;
 	cam.set_content(cw, ch);
-
-
+ 
 	cam.update(dt); // animate toward last frame's target
 	proj = cam.projection();
 
 	gl::useProgram(shaderProgram);
 	gl::uniformMatrix4fv(projLoc, 1, gl::GL_FALSE, &proj.m[0]);
-	gl::uniform4f(textColorLoc, 0.9f, 0.9f, 0.9f, 1.0f);
 	gl::bindTexture(gl::GL_TEXTURE_2D, font::atlas_tex);
 
 	float bx0, by0, bx1, by1;
@@ -358,11 +388,10 @@ fn void render()
 	if (first < 0) first = 0;
 	if (last > core.numrows) last = core.numrows;
 
-	for (int i = first; i < last; i++)
+for (int i = first; i < last; i++)
 	{
-		float end = draw_text(core.rows[i].chars, 0.0f, (float)(i + 1) * LINE_HEIGHT);
+		draw_text_hl(core.rows[i].chars, 0.0f, (float)(i + 1) * LINE_HEIGHT, i);
 	}
-	flush();
 
 	// cursor
 	String line = core.cy < core.numrows ? core.rows[core.cy].chars : "";
@@ -378,16 +407,14 @@ fn void render()
 	}
 
 	float ct = cur_y - font::height() * 0.78f;
-	gl::uniform4f(textColorLoc, 0.85f, 0.85f, 0.95f, alpha);
-	push_quad(
+	
+    push_quad(
 		cur_x,
 		ct,
 		cur_x + font::advance(),
 		ct + font::height(),
-		font::WHITE_U,
-		font::WHITE_V,
-		font::WHITE_U,
-		font::WHITE_V
+		font::WHITE_U, font::WHITE_V, font::WHITE_U, font::WHITE_V,
+		0.85f, 0.85f, 0.95f, alpha
 	);
 	flush();
 
@@ -407,7 +434,7 @@ fn void viewport_resize(Window* window, int width, int height)
 	cam.resize((float)dw, (float)dh);
 }
 
-fn float draw_text(String text, float x, float y)
+fn float draw_text(String text, float x, float y, float r, float g, float b, float a)
 {
 	float xpos  = 0.0f;
 	float ypos  = 0.0f;
@@ -425,33 +452,30 @@ fn float draw_text(String text, float x, float y)
 
 		AlignedQuad q;
 		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H, (CInt)c - 32, &xpos, &ypos, &q, 1);
-
+        	
 		push_quad(
-			x + q.x0 / font::OVERSAMPLE,
-			y + q.y0 / font::OVERSAMPLE,
-			x + q.x1 / font::OVERSAMPLE,
-			y + q.y1 / font::OVERSAMPLE,
-			q.s0,
-			q.t0,
-			q.s1,
-			q.t1
+			x + q.x0 / font::OVERSAMPLE, y + q.y0 / font::OVERSAMPLE,
+			x + q.x1 / font::OVERSAMPLE, y + q.y1 / font::OVERSAMPLE,
+			q.s0, q.t0, q.s1, q.t1,
+			r, g, b, a
 		);
-	}
+    }
 	return x + xpos / font::OVERSAMPLE;
 }
 
-fn void push_quad(float x0, float y0, float x1, float y1, float s0, float t0, float s1, float t1)
-{
+fn void push_quad(float x0, float y0, float x1, float y1,
+                  float s0, float t0, float s1, float t1,
+                  float r, float g, float b, float a) {
 	if (batch_verts + VERTS_PER_QUAD > MAX_QUADS * VERTS_PER_QUAD) flush();
 
 	int i = batch_verts * FLOATS_PER_VERT;
-	float[24] v = {
-		x0, y0, s0, t0,
-		x1, y0, s1, t0,
-		x1, y1, s1, t1,
-		x0, y0, s0, t0,
-		x1, y1, s1, t1,
-		x0, y1, s0, t1
+	float[48] v = {
+		x0, y0, s0, t0, r, g, b, a,
+		x1, y0, s1, t0, r, g, b, a,
+		x1, y1, s1, t1, r, g, b, a,
+		x0, y0, s0, t0, r, g, b, a,
+		x1, y1, s1, t1, r, g, b, a,
+		x0, y1, s0, t1, r, g, b, a
 	};
 	foreach (j, f : v) batch[i + j] = f;
 	batch_verts += VERTS_PER_QUAD;
@@ -528,11 +552,10 @@ fn void use_screen_space()
 	gl::uniformMatrix4fv(projLoc, 1, gl::GL_FALSE, &screen_proj.m[0]);
 }
 
-fn void solid(float x, float y, float w, float h, float r, float g, float b, float a)
-{
-	gl::uniform4f(textColorLoc, r, g, b, a);
-	push_quad(x, y, x + w, y + h, font::WHITE_U, font::WHITE_V, font::WHITE_U, font::WHITE_V);
-	flush();
+fn void solid(float x, float y, float w, float h, float r, float g, float b, float a) {
+	push_quad(x, y, x + w, y + h,
+		font::WHITE_U, font::WHITE_V, font::WHITE_U, font::WHITE_V,
+		r, g, b, a);
 }
 
 fn void panel(UiRect r)
@@ -540,13 +563,9 @@ fn void panel(UiRect r)
 	solid(r.x, r.y, r.w, r.h, 0.13f, 0.13f, 0.16f, 1.0f);
 }
 
-fn void label(UiRect r, String text)
-{
-	gl::uniform4f(textColorLoc, 0.88f, 0.88f, 0.90f, 1.0f);
-	draw_text(text, r.x, r.y + r.h * 0.72f);
-	flush();
+fn void label(UiRect r, String text) {
+	draw_text(text, r.x, r.y + r.h * 0.72f, 0.88f, 0.88f, 0.90f, 1.0f);
 }
-
 fn bool button(uint id, UiRect r, String text)
 {
 	bool over = r.contains(ui::ui.mouse_x, ui::ui.mouse_y);
@@ -556,11 +575,9 @@ fn bool button(uint id, UiRect r, String text)
 	bool clicked = ui::ui.active == id && ui::ui.mouse_released && over;
 
 	float s = ui::ui.active == id ? 0.30f : (over ? 0.24f : 0.19f);
-	solid(r.x, r.y, r.w, r.h, s, s, s + 0.03f, 1.0f);
 
-	gl::uniform4f(textColorLoc, 0.92f, 0.92f, 0.92f, 1.0f);
-	draw_text(text, r.x + 14.0f, r.y + r.h * 0.72f);
-	flush();
+    solid(r.x, r.y, r.w, r.h, s, s, s + 0.03f, 1.0f);
+	draw_text(text, r.x + 14.0f, r.y + r.h * 0.72f, 0.92f, 0.92f, 0.92f, 1.0f);
 	return clicked;
 }
 
@@ -586,11 +603,9 @@ fn bool text_field(uint id, UiRect r, char[] buf, int* len)
 		if (ui::ui.key == 13 && *len > 0) submitted = true;
 	}
 
-	solid(r.x, r.y, r.w, r.h, 0.09f, 0.09f, 0.11f, 1.0f);
-	gl::uniform4f(textColorLoc, 0.92f, 0.92f, 0.92f, 1.0f);
-	float end = draw_text((String)buf[:*len], r.x + 10.0f, r.y + r.h * 0.72f);
-	flush();
-
+    solid(r.x, r.y, r.w, r.h, 0.09f, 0.09f, 0.11f, 1.0f);
+	float end = draw_text((String)buf[:*len], r.x + 10.0f, r.y + r.h * 0.72f,
+		0.92f, 0.92f, 0.92f, 1.0f);
 	if (ui::ui.focus == id)
 	{
 		solid(end + 1.0f, r.y + 6.0f, 2.0f, r.h - 12.0f, 0.9f, 0.9f, 0.9f, 1.0f);
@@ -607,18 +622,33 @@ fn void draw_ui()
 	if (toast_msg.len > 0 && age < 2500)
 	{
 		float a = age > 2000 ? 1.0f - (float)(age - 2000) / 500.0f : 1.0f;
-		solid(24.0f, (float)screenH - 90.0f, 420.0f, 56.0f, 0.15f, 0.15f, 0.18f, a * 0.95f);
-		gl::uniform4f(textColorLoc, 0.9f, 0.9f, 0.9f, a);
-		draw_text(toast_msg, 44.0f, (float)screenH - 52.0f);
-		flush();
+        solid(24.0f, (float)screenH - 90.0f, 420.0f, 56.0f, 0.15f, 0.15f, 0.18f, a * 0.95f);
+		draw_text(toast_msg, 44.0f, (float)screenH - 52.0f, 0.9f, 0.9f, 0.9f, a);
 	}
 
-	if (ui_mode == UiMode.PROMPT_SAVEAS)
+	
+    if (ui_mode == UiMode.PROMPT_SAVEAS)
 	{
-		// ... as you have it ...
+		Layout l = ui::centered(640.0f, 210.0f, (float)screenW, (float)screenH);
+		panel(l.bounds);
+		label(l.row(40.0f), "Save as:");
+
+		if (text_field(1, l.row(48.0f), prompt_buf[..], &prompt_len))
+		{
+			commit_saveas();
+		}
+
+		UiRect r = l.row(46.0f);
+		if (button(2, r.split(0, 2, 12.0f), "Save")) commit_saveas();
+		if (button(3, r.split(1, 2, 12.0f), "Cancel"))
+		{
+			ui_mode = UiMode.NORMAL;
+			prompt_len = 0;
+		}
 	}
 
 	ui::end();
+    flush();
 }
 
 fn void commit_saveas()
@@ -628,4 +658,74 @@ fn void commit_saveas()
 	ui_mode = UiMode.NORMAL;
 	prompt_len = 0;
 	do_save();
+}
+
+fn float draw_text_hl(String text, float x, float y, int row) {
+	float xpos = 0.0f;
+    float ypos = 0.0f;
+	int tw = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
+	float tab_w = font::chardata[0].xadvance * (float)tw;
+
+	for (int i = 0; i < text.len; i++) {
+		char c = text[i];
+		if (c == '\t') {
+			xpos = (math::floor(xpos / tab_w) + 1.0f) * tab_w;
+			continue;
+		}
+		if (c < 32 || c >= 127) continue;
+
+		int ci = highlight::at(row, i);
+		float[4] col = PALETTE[ci];
+
+		AlignedQuad q;
+		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H,
+			(CInt)c - 32, &xpos, &ypos, &q, 1);
+
+		push_quad(
+			x + q.x0 / font::OVERSAMPLE, y + q.y0 / font::OVERSAMPLE,
+			x + q.x1 / font::OVERSAMPLE, y + q.y1 / font::OVERSAMPLE,
+			q.s0, q.t0, q.s1, q.t1,
+			col[0], col[1], col[2], col[3]
+		);
+	}
+	return x + xpos / font::OVERSAMPLE;
+}
+
+fn void normal_key(int sym)
+{
+	bool shift = (sdl::getModState() & 0x0003) != (Keymod) 0;
+
+	switch (sym)
+	{
+		case 104: core.moveCursor(Direction.LEFT);   // h
+		case 108: core.moveCursor(Direction.RIGHT);  // l
+		case 107: core.moveCursor(Direction.UP);     // k
+		case 106: core.moveCursor(Direction.DOWN);   // j
+
+		case 105:                                    // i
+			if (mode == Mode.NORMAL) mode = Mode.INSERT;
+
+		case 118:                                    // v / V
+			if (mode == Mode.VISUAL || mode == Mode.VISUAL_LINE)
+			{
+				mode = Mode.NORMAL;
+			}
+			else
+			{
+				sel_x = core.cx;
+				sel_y = core.cy;
+				mode = shift ? Mode.VISUAL_LINE : Mode.VISUAL;
+			}
+
+		case 27:                                     // esc
+			mode = Mode.NORMAL;
+			pending = 0;
+			pending2 = 0;
+
+		case 1073741904: core.moveCursor(Direction.LEFT);
+		case 1073741903: core.moveCursor(Direction.RIGHT);
+		case 1073741906: core.moveCursor(Direction.UP);
+		case 1073741905: core.moveCursor(Direction.DOWN);
+		default: break;
+	}
 }

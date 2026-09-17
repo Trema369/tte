@@ -1,7 +1,20 @@
-module main;
+module test;
 
 import std::io;
 
-fn void main(){
-	io::printn("hello from c3");
+struct Foo {
+	String name;
+	int age;
+	bool foo;
 }
+
+fn void main() => @pool(){
+	io::print("hello");
+	Foo foo = {
+		.name = "tadiwa",
+		.age = 18,
+		.foo = false 
+	}
+	io::printfn("name is %s",foo.name);
+};
+

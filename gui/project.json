@@ -13,7 +13,9 @@
 	"linked-libraries": [
 		"SDL2",
 		"GL",
-		"stb"
+		"stb",
+		"treesitter",
+		"tsc3"
 	],
 	"link-args": [
 		"-Lvendor"

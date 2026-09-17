@@ -7,6 +7,7 @@ import textures;
 import font;
 import stbtt;
 import tte::render;
+import ts;
 
 int screenW;
 int screenH;
@@ -14,6 +15,7 @@ uint frames;
 
 fn int main(String[] args)
 {
+
 	if (sdl::init(sdl::INIT_VIDEO) != 0)
 	{
 		io::printfn("SDL init failed: %s", (ZString)sdl::getError());

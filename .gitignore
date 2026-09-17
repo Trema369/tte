@@ -1,0 +1,8 @@
+gui/vendor/tree-sitter/
+gui/vendor/ts-c/
+gui/vendor/ts-c3/
+gui/vendor/stb_truetype.h
+gui/vendor/*.o
+gui/vendor/*.a
+gui/vendor/*.lib
+gui/build/
