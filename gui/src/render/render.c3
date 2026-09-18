@@ -202,7 +202,7 @@ fn void init(String[] args, Window* window) {
 				} else if (searching) {
 					foreach (chex : txt.str_view()) {
 						if (search_len < 127) {
-							search_buf[search_len] = (char)ch;
+							search_buf[search_len] = (char)chex;
 							search_len++;
 						}
 					}
@@ -924,8 +924,9 @@ fn void normal_key(int sym) {
 			}
 			mode = Mode.INSERT;
 			swallow_text = true;
-		case 55: // 7 / /
-			if (shift) {
+		case 47:
+            case 55:// 7 / /
+			if (sym==47||shift) {
 				searching = true;
 				search_len = 0;
 				pre_search_y = core.cy;
