@@ -12,26 +12,39 @@ import font;
 import tte::ui;
 import highlight;
 
-enum Mode { NORMAL, INSERT, VISUAL, VISUAL_LINE }
+enum Mode {
+	NORMAL,
+	INSERT,
+	VISUAL,
+	VISUAL_LINE
+}
 
-Mode mode = Mode.NORMAL;
+Mode mode          = Mode.NORMAL;
 int sel_x, sel_y;
 char pending;
 char pending2;
+bool swallow_text;
+bool searching;
+char[128] search_buf;
+int search_len;
+String last_search = "";
+int pre_search_y, pre_search_x;
+String reg         = "";
+bool reg_linewise;
 
 const float[4][11] PALETTE = {
-	{ 0.85f, 0.85f, 0.87f, 1.0f },   // 0 default / variable
-	{ 0.98f, 0.75f, 0.35f, 1.0f },   // 1 keyword
-	{ 0.45f, 0.50f, 0.55f, 1.0f },   // 2 comment
-	{ 0.55f, 0.80f, 0.45f, 1.0f },   // 3 string
-	{ 0.80f, 0.60f, 0.95f, 1.0f },   // 4 number
-	{ 0.45f, 0.75f, 0.90f, 1.0f },   // 5 type
-	{ 0.95f, 0.55f, 0.55f, 1.0f },   // 6 constant / boolean
-	{ 0.60f, 0.80f, 0.98f, 1.0f },   // 7 function
-	{ 0.85f, 0.75f, 0.60f, 1.0f },   // 8 member
-	{ 0.90f, 0.70f, 0.85f, 1.0f },   // 9 parameter
-	{ 0.55f, 0.55f, 0.60f, 1.0f }    // 10 punctuation / operator
-};
+	{ 0.85f, 0.85f, 0.87f, 1.0f }, // 0 default / variable
+	{ 0.98f, 0.75f, 0.35f, 1.0f }, // 1 keyword
+	{ 0.45f, 0.50f, 0.55f, 1.0f }, // 2 comment
+	{ 0.55f, 0.80f, 0.45f, 1.0f }, // 3 string
+	{ 0.80f, 0.60f, 0.95f, 1.0f }, // 4 number
+	{ 0.45f, 0.75f, 0.90f, 1.0f }, // 5 type
+	{ 0.95f, 0.55f, 0.55f, 1.0f }, // 6 constant / boolean
+	{ 0.60f, 0.80f, 0.98f, 1.0f }, // 7 function
+	{ 0.85f, 0.75f, 0.60f, 1.0f }, // 8 member
+	{ 0.90f, 0.70f, 0.85f, 1.0f }, // 9 parameter
+	{ 0.55f, 0.55f, 0.60f, 1.0f } // 10 punctuation / operator
+	};
 
 EditorCore core;
 Camera cam;
@@ -65,14 +78,12 @@ const int VERTS_PER_QUAD  = 6;
 const float PAD_X         = 16.0f;
 const float PAD_Y         = 12.0f;
 const int MEASURE_ROWS    = 20;
-
 float[MAX_QUADS * VERTS_PER_QUAD * FLOATS_PER_VERT] batch;
 int batch_verts;
 ulong perf_last;
 ulong perf_freq;
 
-enum UiMode
-{
+enum UiMode {
 	NORMAL,
 	CONFIRM_QUIT,
 	PROMPT_SAVEAS
@@ -84,47 +95,38 @@ int prompt_len;
 String toast_msg = "";
 uint toast_ms;
 
-fn void toast(String msg)
-{
+fn void toast(String msg) {
 	toast_msg = msg;
 	toast_ms = sdl::getTicks();
 }
 
-fn void do_save()
-{
-	if (core.filename.len == 0)
-	{
+fn void do_save() {
+	if (core.filename.len == 0) {
 		ui_mode = UiMode.PROMPT_SAVEAS;
 		prompt_len = 0;
 		ui::ui.focus = 1;
 		return;
 	}
-	if (try n = core.save())
-	{
+	if (try n = core.save()) {
 		toast(string::tformat("%d bytes written", n));
-	}
-	else
-	{
+	} else {
 		toast("Save failed");
 	}
 }
 
 
-fn void init(String[] args, Window* window)
-{
-	if (!window)
-	{
+fn void init(String[] args, Window* window) {
+	if (!window) {
 		io::printfn("createWindow failed: %s", (ZString)sdl::getError());
-//		return 1;
+		// 		return 1;
 	}
 	sdl::startTextInput();
 
 	defer sdl::destroyWindow(window);
 	GLContext ctx = sdl::glCreateContext(window);
-	if (!ctx)
-	{
+	if (!ctx) {
 		io::printfn("GL context failed: %s", (ZString)sdl::getError());
-//		return 1;
+		// 		return 1;
 	}
 	defer sdl::glDeleteContext(ctx);
 	sdl::glSetSwapInterval(1);
@@ -150,7 +152,7 @@ fn void init(String[] args, Window* window)
 	perf_last = sdl::getPerformanceCounter();
 	cam.init((float)screenW, (float)screenH);
 	core.init();
-    highlight::init();
+	highlight::init();
 	if (args.len >= 2) core.open(args[1]);
 
 	float cw = measure_width();
@@ -159,117 +161,118 @@ fn void init(String[] args, Window* window)
 	cam.follow(0.0f, LINE_HEIGHT, cw, ch);
 	cam.snap();
 
-	while (running)
-	{
-		while (sdl::pollEvent(&event) != 0)
-		{
+	while (running) {
+		while (sdl::pollEvent(&event) != 0) {
 			if ((int)event.type == 256) running = false;
 			if (event.type == EventType.WINDOWEVENT
-				&& event.window.event == (char)WindowEventID.WINDOWEVENT_SIZE_CHANGED)
-			{
+				&& event.window.event == (char)WindowEventID.WINDOWEVENT_SIZE_CHANGED) {
 				int newWidth  = event.window.data1;
 				int newHeight = event.window.data2;
 				viewport_resize(window, newWidth, newHeight);
 			}
-			if ((int)event.type == 1027)
-			{
+			if ((int)event.type == 1027) {
 				cam.pan(0.0f, -(float)event.wheel.y * LINE_HEIGHT * 3.0f);
 			}
 
-			if ((int)event.type == 1024)
-			{
+			if ((int)event.type == 1024) {
 				// SDL_MOUSEMOTION
 				ui::ui.mouse_x = (float)event.motion.x;
 				ui::ui.mouse_y = (float)event.motion.y;
 			}
-			if ((int)event.type == 1025)
-			{
+			if ((int)event.type == 1025) {
 				// SDL_MOUSEBUTTONDOWN
 				ui::ui.mouse_down = true;
 				ui::ui.mouse_pressed = true;
 			}
-			if ((int)event.type == 1026)
-			{
+			if ((int)event.type == 1026) {
 				// SDL_MOUSEBUTTONUP
 				ui::ui.mouse_down = false;
 				ui::ui.mouse_released = true;
 			}
 
-			if ((int)event.type == 771)
-			{
+			if ((int)event.type == 771) {
 				ZString txt = (ZString)&event.text.text[0];
-				if (ui_mode != UiMode.NORMAL)
-				{
-					foreach (chx : txt.str_view())
-					{
-						if (ui::ui.typed_len < 63)
-						{
+				if (ui_mode != UiMode.NORMAL) {
+					foreach (chx : txt.str_view()) {
+						if (ui::ui.typed_len < 63) {
 							ui::ui.typed[ui::ui.typed_len] = chx;
 							ui::ui.typed_len++;
 						}
 					}
-				}
-				else if(mode == Mode.INSERT)
-				{
-					foreach (che : txt.str_view()) core.insertChar(che);
-					cam.release();
-					last_input_ms = sdl::getTicks();
+				} else if (searching) {
+					foreach (chex : txt.str_view()) {
+						if (search_len < 127) {
+							search_buf[search_len] = (char)ch;
+							search_len++;
+						}
+					}
+					search_update();
+				} else if (mode == Mode.INSERT) {
+					if (swallow_text) {
+						swallow_text = false;
+					} else {
+						foreach (che : txt.str_view()) core.insertChar(che);
+						cam.release();
+						last_input_ms = sdl::getTicks();
+					}
 				}
 			}
-			if ((int)event.type == 768)
-			{
+			if ((int)event.type == 768) {
 				int sym   = (int)event.key.keysym.sym;
 				bool ctrl = (event.key.keysym.mod & 0x00C0) != 0;
 
-				if (ui_mode != UiMode.NORMAL)
-				{
+				if (ui_mode != UiMode.NORMAL) {
 					ui::ui.key = sym;
-					if (sym == 27)
-					{
+					if (sym == 27) {
 						ui_mode = UiMode.NORMAL;
 						prompt_len = 0;
 					}
+				} else if (searching) {
+					if (sym == 27) {
+						// cancel
+						searching = false;
+						core.cy = pre_search_y;
+						core.cx = pre_search_x;
+					} else if (sym == 8) {
+						// backspace
+						if (search_len > 0) search_len--;
+						search_update();
+					} else if (sym == 13) {
+						// commit
+						searching = false;
+						if (last_search.len) mem::free(last_search.ptr);
+						last_search = ((String)search_buf[:search_len]).copy(mem);
+					}
+				} else {
+					if (ctrl && sym == 115) {
+						do_save();
+					} else if (mode == Mode.INSERT) {
+						switch (sym) {
+							case 27: mode = Mode.NORMAL;
+							case 13: core.insertNewline();
+							case 8: core.delChar();
+							case 9: core.insertTab();
+							case 1073741904: core.moveCursor(Direction.LEFT);
+							case 1073741903: core.moveCursor(Direction.RIGHT);
+							case 1073741906: core.moveCursor(Direction.UP);
+							case 1073741905: core.moveCursor(Direction.DOWN);
+							default: break;
+						}
+					} else {
+						normal_key(sym);
+					}
+					cam.release();
+					last_input_ms = sdl::getTicks();
 				}
-				else
-				{
-		if (ctrl && sym == 115)
-		{
-			do_save();
-		}
-		else if (mode == Mode.INSERT)
-		{
-			switch (sym)
-			{
-				case 27: mode = Mode.NORMAL;
-				case 13: core.insertNewline();
-				case 8:  core.delChar();
-				case 9:  core.insertTab();
-				case 1073741904: core.moveCursor(Direction.LEFT);
-				case 1073741903: core.moveCursor(Direction.RIGHT);
-				case 1073741906: core.moveCursor(Direction.UP);
-				case 1073741905: core.moveCursor(Direction.DOWN);
-				default: break;
-			}
-		}
-		else
-		{
-			normal_key(sym);
-		}
-		cam.release();
-		last_input_ms = sdl::getTicks();
-	}
-
 			}
 		}
 		gl::clear(gl::GL_COLOR_BUFFER_BIT);
 		render();
 		sdl::glSwapWindow(window);
 	}
-
 }
 
-fn void load()
-{
+fn void load() {
 	proj = matrix::ortho{float}(0.0f, (float)screenW, (float)screenH, 0.0f, -1.0f, 1.0f);
 	float[] vertices = {
 		// pos              // uv
@@ -277,7 +280,7 @@ fn void load()
 		1.0f, 1.0f, 0.0f, 1.0f, 1.0f, // 1 bottom right
 		0.0f, 1.0f, 0.0f, 0.0f, 1.0f, // 2 bottom left
 		0.0f, 0.0f, 0.0f, 0.0f, 0.0f // 3 top left
-	};
+		};
 	uint[] indices = { 0, 1, 3, 1, 2, 3 };
 
 	// generating vao
@@ -307,8 +310,7 @@ fn void load()
 	int success;
 	char[512] infolog;
 	gl::getShaderiv(vertexShader, gl::GL_COMPILE_STATUS, &success);
-	if (!success)
-	{
+	if (!success) {
 		io::printn("Error shader compilation failed");
 	}
 	char* fp            = &FRAG_SRC[0];
@@ -317,8 +319,7 @@ fn void load()
 	gl::shaderSource(fragmentShader, 1, &fp, &flen);
 	gl::compileShader(fragmentShader);
 
-	defer
-	{
+	defer {
 		gl::deleteShader(vertexShader);
 		gl::deleteShader(fragmentShader);
 	}
@@ -348,7 +349,7 @@ fn void load()
 		pointer: (void*)(2 * float::size)
 	);
 	gl::enableVertexAttribArray(1);
-    	gl::vertexAttribPointer(2, 4, gl::GL_FLOAT, gl::GL_FALSE, 8 * float::size, (void*)(4 * float::size));
+	gl::vertexAttribPointer(2, 4, gl::GL_FLOAT, gl::GL_FALSE, 8 * float::size, (void*)(4 * float::size));
 	gl::enableVertexAttribArray(2);
 
 	projLoc = gl::getUniformLocation(shaderProgram, "projection");
@@ -362,9 +363,8 @@ fn void load()
 	gl::blendFunc(gl::GL_SRC_ALPHA, gl::GL_ONE_MINUS_SRC_ALPHA);
 }
 
-fn void render()
-{
-    highlight::refresh(&core);
+fn void render() {
+	highlight::refresh(&core);
 	ulong pnow = sdl::getPerformanceCounter();
 	float dt   = (float)(pnow - perf_last) / (float)perf_freq;
 	perf_last = pnow;
@@ -373,7 +373,7 @@ fn void render()
 	float cw = measure_width();
 	float ch = (float)(core.numrows + 1) * LINE_HEIGHT;
 	cam.set_content(cw, ch);
- 
+
 	cam.update(dt); // animate toward last frame's target
 	proj = cam.projection();
 
@@ -387,9 +387,35 @@ fn void render()
 	int last  = (int)(by1 / LINE_HEIGHT) + 2;
 	if (first < 0) first = 0;
 	if (last > core.numrows) last = core.numrows;
+	if (mode == Mode.VISUAL || mode == Mode.VISUAL_LINE) {
+		int ay = sel_y;
+		int ax = sel_x;
+		int by = core.cy;
+		int bx = core.cx;
+		if (ay > by || (ay == by && ax > bx)) {
+			int t = ay;
+			ay = by;
+			by = t;
+			t = ax;
+			ax = bx;
+			bx = t;
+		}
+		for (int i = ay; i <= by && i < core.numrows; i++) {
+			String row = core.rows[i].chars;
+			int c0     = (mode == Mode.VISUAL_LINE || i > ay) ? 0 : ax;
+			int c1     = (mode == Mode.VISUAL_LINE || i < by) ? line_len(i) : bx + 1;
+			if (c1 > line_len(i)) c1 = line_len(i);
 
-for (int i = first; i < last; i++)
-	{
+			float x0 = cursor_x(row, c0);
+			float x1 = cursor_x(row, c1);
+			if (x1 <= x0) x1 = x0 + font::advance();
+
+			float ry = (float)(i + 1) * LINE_HEIGHT;
+			solid(x0, ry - font::height() * 0.78f, x1 - x0, font::height(), 0.25f, 0.30f, 0.45f, 1.0f);
+		}
+	}
+
+	for (int i = first; i < last; i++) {
 		draw_text_hl(core.rows[i].chars, 0.0f, (float)(i + 1) * LINE_HEIGHT, i);
 	}
 
@@ -400,22 +426,44 @@ for (int i = first; i < last; i++)
 
 	float alpha = 1.0f;
 	uint idle   = now - last_input_ms;
-	if (idle > IDLE_MS)
-	{
+	if (idle > IDLE_MS) {
 		float t = (float)(idle - IDLE_MS) / 1000.0f;
 		alpha = 0.30f + 0.70f * (0.5f + 0.5f * math::cos(t * 3.2f));
 	}
 
 	float ct = cur_y - font::height() * 0.78f;
-	
-    push_quad(
+
+	push_quad(
 		cur_x,
 		ct,
 		cur_x + font::advance(),
 		ct + font::height(),
-		font::WHITE_U, font::WHITE_V, font::WHITE_U, font::WHITE_V,
-		0.85f, 0.85f, 0.95f, alpha
+		font::WHITE_U,
+		font::WHITE_V,
+		font::WHITE_U,
+		font::WHITE_V,
+		0.85f,
+		0.85f,
+		0.95f,
+		alpha
 	);
+
+	String term = searching ? (String)search_buf[:search_len] : last_search;
+	if (term.len > 0) {
+		for (int i = first; i < last; i++) {
+			String row = core.rows[i].chars;
+			int at     = 0;
+			while (true) {
+				int f = core::editor::find_in(row, term, at, true);
+				if (f < 0) break;
+				float x0 = cursor_x(row, f);
+				float x1 = cursor_x(row, f + (int)term.len);
+				float ry = (float)(i + 1) * LINE_HEIGHT;
+				solid(x0, ry - font::height() * 0.78f, x1 - x0, font::height(), 0.45f, 0.40f, 0.15f, 1.0f);
+				at = f + 1;
+			}
+		}
+	}
 	flush();
 
 	cam.follow(cur_x, cur_y, cw, ch);
@@ -423,8 +471,7 @@ for (int i = first; i < last; i++)
 	draw_ui();
 }
 
-fn void viewport_resize(Window* window, int width, int height)
-{
+fn void viewport_resize(Window* window, int width, int height) {
 	int dw;
 	int dh;
 	sdl::glGetDrawableSize(window, &dw, &dh);
@@ -434,17 +481,14 @@ fn void viewport_resize(Window* window, int width, int height)
 	cam.resize((float)dw, (float)dh);
 }
 
-fn float draw_text(String text, float x, float y, float r, float g, float b, float a)
-{
+fn float draw_text(String text, float x, float y, float r, float g, float b, float a) {
 	float xpos  = 0.0f;
 	float ypos  = 0.0f;
 	int tw      = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
 	float tab_w = font::chardata[0].xadvance * (float)tw; // atlas space
 
-	foreach (c : text)
-	{
-		if (c == '\t')
-		{
+	foreach (c : text) {
+		if (c == '\t') {
 			xpos = (math::floor(xpos / tab_w) + 1.0f) * tab_w;
 			continue;
 		}
@@ -452,20 +496,39 @@ fn float draw_text(String text, float x, float y, float r, float g, float b, flo
 
 		AlignedQuad q;
 		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H, (CInt)c - 32, &xpos, &ypos, &q, 1);
-        	
+
 		push_quad(
-			x + q.x0 / font::OVERSAMPLE, y + q.y0 / font::OVERSAMPLE,
-			x + q.x1 / font::OVERSAMPLE, y + q.y1 / font::OVERSAMPLE,
-			q.s0, q.t0, q.s1, q.t1,
-			r, g, b, a
+			x + q.x0 / font::OVERSAMPLE,
+			y + q.y0 / font::OVERSAMPLE,
+			x + q.x1 / font::OVERSAMPLE,
+			y + q.y1 / font::OVERSAMPLE,
+			q.s0,
+			q.t0,
+			q.s1,
+			q.t1,
+			r,
+			g,
+			b,
+			a
 		);
-    }
+	}
 	return x + xpos / font::OVERSAMPLE;
 }
 
-fn void push_quad(float x0, float y0, float x1, float y1,
-                  float s0, float t0, float s1, float t1,
-                  float r, float g, float b, float a) {
+fn void push_quad(
+	float x0,
+	float y0,
+	float x1,
+	float y1,
+	float s0,
+	float t0,
+	float s1,
+	float t1,
+	float r,
+	float g,
+	float b,
+	float a
+) {
 	if (batch_verts + VERTS_PER_QUAD > MAX_QUADS * VERTS_PER_QUAD) flush();
 
 	int i = batch_verts * FLOATS_PER_VERT;
@@ -476,13 +539,12 @@ fn void push_quad(float x0, float y0, float x1, float y1,
 		x0, y0, s0, t0, r, g, b, a,
 		x1, y1, s1, t1, r, g, b, a,
 		x0, y1, s0, t1, r, g, b, a
-	};
+		};
 	foreach (j, f : v) batch[i + j] = f;
 	batch_verts += VERTS_PER_QUAD;
 }
 
-fn void flush()
-{
+fn void flush() {
 	if (batch_verts == 0) return;
 	gl::bindBuffer(gl::GL_ARRAY_BUFFER, vbo);
 	gl::bufferSubData(gl::GL_ARRAY_BUFFER, 0, (long)(batch_verts * FLOATS_PER_VERT) * float::size, &batch[0]);
@@ -491,18 +553,15 @@ fn void flush()
 	batch_verts = 0;
 }
 
-fn float cursor_x(String chars, int cx)
-{
+fn float cursor_x(String chars, int cx) {
 	float xpos  = 0.0f;
 	float ypos  = 0.0f;
 	int tw      = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
 	float tab_w = font::chardata[0].xadvance * (float)tw; // atlas space
 
-	for (int i = 0; i < cx && i < chars.len; i++)
-	{
+	for (int i = 0; i < cx && i < chars.len; i++) {
 		char c = chars[i];
-		if (c == '\t')
-		{
+		if (c == '\t') {
 			xpos = (math::floor(xpos / tab_w) + 1.0f) * tab_w;
 			continue;
 		}
@@ -513,8 +572,7 @@ fn float cursor_x(String chars, int cx)
 	return xpos / font::OVERSAMPLE; // ← the only change
 }
 
-fn float measure_width()
-{
+fn float measure_width() {
 	int lo = core.cy - MEASURE_ROWS;
 	int hi = core.cy + MEASURE_ROWS;
 	if (lo < 0) lo = 0;
@@ -524,18 +582,13 @@ fn float measure_width()
 	float adv    = font::advance();
 	float widest = adv;
 
-	for (int i = lo; i < hi; i++)
-	{
+	for (int i = lo; i < hi; i++) {
 		String s = core.rows[i].chars;
 		int cols = 0;
-		foreach (c : s)
-		{
-			if (c == '\t')
-			{
+		foreach (c : s) {
+			if (c == '\t') {
 				cols = (cols / tw + 1) * tw;
-			}
-			else
-			{
+			} else {
 				cols++;
 			}
 		}
@@ -545,29 +598,24 @@ fn float measure_width()
 	return widest;
 }
 
-fn void use_screen_space()
-{
+fn void use_screen_space() {
 	flush();
 	screen_proj = matrix::ortho{float}(0.0f, (float)screenW, (float)screenH, 0.0f, -1.0f, 1.0f);
 	gl::uniformMatrix4fv(projLoc, 1, gl::GL_FALSE, &screen_proj.m[0]);
 }
 
 fn void solid(float x, float y, float w, float h, float r, float g, float b, float a) {
-	push_quad(x, y, x + w, y + h,
-		font::WHITE_U, font::WHITE_V, font::WHITE_U, font::WHITE_V,
-		r, g, b, a);
+	push_quad(x, y, x + w, y + h, font::WHITE_U, font::WHITE_V, font::WHITE_U, font::WHITE_V, r, g, b, a);
 }
 
-fn void panel(UiRect r)
-{
+fn void panel(UiRect r) {
 	solid(r.x, r.y, r.w, r.h, 0.13f, 0.13f, 0.16f, 1.0f);
 }
 
 fn void label(UiRect r, String text) {
 	draw_text(text, r.x, r.y + r.h * 0.72f, 0.88f, 0.88f, 0.90f, 1.0f);
 }
-fn bool button(uint id, UiRect r, String text)
-{
+fn bool button(uint id, UiRect r, String text) {
 	bool over = r.contains(ui::ui.mouse_x, ui::ui.mouse_y);
 	if (over) ui::ui.hot = id;
 	if (over && ui::ui.mouse_pressed) ui::ui.active = id;
@@ -576,25 +624,20 @@ fn bool button(uint id, UiRect r, String text)
 
 	float s = ui::ui.active == id ? 0.30f : (over ? 0.24f : 0.19f);
 
-    solid(r.x, r.y, r.w, r.h, s, s, s + 0.03f, 1.0f);
+	solid(r.x, r.y, r.w, r.h, s, s, s + 0.03f, 1.0f);
 	draw_text(text, r.x + 14.0f, r.y + r.h * 0.72f, 0.92f, 0.92f, 0.92f, 1.0f);
 	return clicked;
 }
 
-fn bool text_field(uint id, UiRect r, char[] buf, int* len)
-{
-	if (r.contains(ui::ui.mouse_x, ui::ui.mouse_y) && ui::ui.mouse_pressed)
-	{
+fn bool text_field(uint id, UiRect r, char[] buf, int* len) {
+	if (r.contains(ui::ui.mouse_x, ui::ui.mouse_y) && ui::ui.mouse_pressed) {
 		ui::ui.focus = id;
 	}
 
 	bool submitted = false;
-	if (ui::ui.focus == id)
-	{
-		for (int i = 0; i < ui::ui.typed_len; i++)
-		{
-			if (*len < buf.len - 1)
-			{
+	if (ui::ui.focus == id) {
+		for (int i = 0; i < ui::ui.typed_len; i++) {
+			if (*len < buf.len - 1) {
 				buf[*len] = ui::ui.typed[i];
 				(*len)++;
 			}
@@ -603,56 +646,66 @@ fn bool text_field(uint id, UiRect r, char[] buf, int* len)
 		if (ui::ui.key == 13 && *len > 0) submitted = true;
 	}
 
-    solid(r.x, r.y, r.w, r.h, 0.09f, 0.09f, 0.11f, 1.0f);
-	float end = draw_text((String)buf[:*len], r.x + 10.0f, r.y + r.h * 0.72f,
-		0.92f, 0.92f, 0.92f, 1.0f);
-	if (ui::ui.focus == id)
-	{
+	solid(r.x, r.y, r.w, r.h, 0.09f, 0.09f, 0.11f, 1.0f);
+	float end = draw_text((String)buf[:*len], r.x + 10.0f, r.y + r.h * 0.72f, 0.92f, 0.92f, 0.92f, 1.0f);
+	if (ui::ui.focus == id) {
 		solid(end + 1.0f, r.y + 6.0f, 2.0f, r.h - 12.0f, 0.9f, 0.9f, 0.9f, 1.0f);
 	}
 	return submitted;
 }
 
-fn void draw_ui()
-{
+fn void draw_ui() {
 	use_screen_space();
+	draw_mode();
 	ui::begin();
 
 	uint age = sdl::getTicks() - toast_ms;
-	if (toast_msg.len > 0 && age < 2500)
-	{
+	if (toast_msg.len > 0 && age < 2500) {
 		float a = age > 2000 ? 1.0f - (float)(age - 2000) / 500.0f : 1.0f;
-        solid(24.0f, (float)screenH - 90.0f, 420.0f, 56.0f, 0.15f, 0.15f, 0.18f, a * 0.95f);
+		solid(24.0f, (float)screenH - 90.0f, 420.0f, 56.0f, 0.15f, 0.15f, 0.18f, a * 0.95f);
 		draw_text(toast_msg, 44.0f, (float)screenH - 52.0f, 0.9f, 0.9f, 0.9f, a);
 	}
 
-	
-    if (ui_mode == UiMode.PROMPT_SAVEAS)
-	{
+	if (searching) {
+		float h = font::height() + 16.0f;
+		float y = (float)screenH - h - 20.0f;
+		solid(20.0f, y, 500.0f, h, 0.10f, 0.10f, 0.13f, 1.0f);
+		draw_text("/", 32.0f, y + h * 0.75f, 0.60f, 0.70f, 0.90f, 1.0f);
+		float end = draw_text(
+			(String)search_buf[:search_len],
+			32.0f + font::advance() * 1.5f,
+			y + h * 0.75f,
+			0.92f,
+			0.92f,
+			0.92f,
+			1.0f
+		);
+		solid(end + 2.0f, y + 8.0f, 2.0f, h - 16.0f, 0.9f, 0.9f, 0.9f, 1.0f);
+	}
+
+
+	if (ui_mode == UiMode.PROMPT_SAVEAS) {
 		Layout l = ui::centered(640.0f, 210.0f, (float)screenW, (float)screenH);
 		panel(l.bounds);
 		label(l.row(40.0f), "Save as:");
 
-		if (text_field(1, l.row(48.0f), prompt_buf[..], &prompt_len))
-		{
+		if (text_field(1, l.row(48.0f), prompt_buf[..], &prompt_len)) {
 			commit_saveas();
 		}
 
 		UiRect r = l.row(46.0f);
 		if (button(2, r.split(0, 2, 12.0f), "Save")) commit_saveas();
-		if (button(3, r.split(1, 2, 12.0f), "Cancel"))
-		{
+		if (button(3, r.split(1, 2, 12.0f), "Cancel")) {
 			ui_mode = UiMode.NORMAL;
 			prompt_len = 0;
 		}
 	}
 
 	ui::end();
-    flush();
+	flush();
 }
 
-fn void commit_saveas()
-{
+fn void commit_saveas() {
 	if (prompt_len == 0) return;
 	core.setFilename((String)prompt_buf[:prompt_len]);
 	ui_mode = UiMode.NORMAL;
@@ -661,9 +714,9 @@ fn void commit_saveas()
 }
 
 fn float draw_text_hl(String text, float x, float y, int row) {
-	float xpos = 0.0f;
-    float ypos = 0.0f;
-	int tw = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
+	float xpos  = 0.0f;
+	float ypos  = 0.0f;
+	int tw      = core.ft.tab_width > 0 ? core.ft.tab_width : 8;
 	float tab_w = font::chardata[0].xadvance * (float)tw;
 
 	for (int i = 0; i < text.len; i++) {
@@ -674,58 +727,264 @@ fn float draw_text_hl(String text, float x, float y, int row) {
 		}
 		if (c < 32 || c >= 127) continue;
 
-		int ci = highlight::at(row, i);
+		int ci       = highlight::at(row, i);
 		float[4] col = PALETTE[ci];
 
 		AlignedQuad q;
-		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H,
-			(CInt)c - 32, &xpos, &ypos, &q, 1);
+		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H, (CInt)c - 32, &xpos, &ypos, &q, 1);
 
 		push_quad(
-			x + q.x0 / font::OVERSAMPLE, y + q.y0 / font::OVERSAMPLE,
-			x + q.x1 / font::OVERSAMPLE, y + q.y1 / font::OVERSAMPLE,
-			q.s0, q.t0, q.s1, q.t1,
-			col[0], col[1], col[2], col[3]
+			x + q.x0 / font::OVERSAMPLE,
+			y + q.y0 / font::OVERSAMPLE,
+			x + q.x1 / font::OVERSAMPLE,
+			y + q.y1 / font::OVERSAMPLE,
+			q.s0,
+			q.t0,
+			q.s1,
+			q.t1,
+			col[0],
+			col[1],
+			col[2],
+			col[3]
 		);
 	}
 	return x + xpos / font::OVERSAMPLE;
 }
 
-fn void normal_key(int sym)
-{
-	bool shift = (sdl::getModState() & 0x0003) != (Keymod) 0;
+fn String mode_name() {
+	switch (mode) {
+		case NORMAL: return "NORMAL";
+		case INSERT: return "INSERT";
+		case VISUAL: return "VISUAL";
+		case VISUAL_LINE: return "V-LINE";
+	}
+}
 
-	switch (sym)
-	{
-		case 104: core.moveCursor(Direction.LEFT);   // h
-		case 108: core.moveCursor(Direction.RIGHT);  // l
-		case 107: core.moveCursor(Direction.UP);     // k
-		case 106: core.moveCursor(Direction.DOWN);   // j
+fn void draw_mode() {
+	float[4] c;
+	switch (mode) {
+		case NORMAL: c = { 0.35f, 0.55f, 0.85f, 1.0f };
+		case INSERT: c = { 0.40f, 0.75f, 0.45f, 1.0f };
+		case VISUAL: c = { 0.85f, 0.60f, 0.30f, 1.0f };
+		case VISUAL_LINE: c = { 0.85f, 0.45f, 0.30f, 1.0f };
+	}
 
-		case 105:                                    // i
-			if (mode == Mode.NORMAL) mode = Mode.INSERT;
+	String name = mode_name();
+	float pad   = 14.0f;
+	float w     = (float)name.len * font::advance() + pad * 2.0f;
+	float h     = font::height() + 12.0f;
+	float x     = (float)screenW - w - 20.0f;
+	float y     = (float)screenH - h - 20.0f;
 
-		case 118:                                    // v / V
-			if (mode == Mode.VISUAL || mode == Mode.VISUAL_LINE)
-			{
-				mode = Mode.NORMAL;
+	solid(x, y, w, h, c[0], c[1], c[2], 1.0f);
+	draw_text(name, x + pad, y + h * 0.75f, 0.08f, 0.08f, 0.10f, 1.0f);
+}
+
+fn int line_len(int y) {
+	return y < core.numrows ? (int)core.rows[y].chars.len : 0;
+}
+
+fn void apply_op_range(char op, int y0, int x0, int y1, int x1, bool linewise) {
+	if (y0 > y1 || (y0 == y1 && x0 > x1)) {
+		int ty = y0;
+		y0 = y1;
+		y1 = ty;
+		int tx = x0;
+		x0 = x1;
+		x1 = tx;
+	}
+	if (y0 < 0) y0 = 0;
+	if (y1 >= core.numrows) y1 = core.numrows - 1;
+	if (y1 < 0) return;
+
+	if (linewise) {
+		x0 = 0;
+		x1 = line_len(y1);
+	} else {
+		x1++;
+		if (x1 > line_len(y1)) x1 = line_len(y1);
+	}
+
+	if (reg.len) mem::free(reg.ptr);
+	reg = core.copyRange(y0, x0, y1, x1);
+	reg_linewise = linewise;
+
+	if (op == 'd') {
+		if (linewise && y1 + 1 < core.numrows) {
+			core.deleteRange(y0, 0, y1 + 1, 0);
+		} else {
+			core.deleteRange(y0, x0, y1, x1);
+		}
+	}
+	pending = 0;
+	pending2 = 0;
+	mode = Mode.NORMAL;
+	if (reg.len) {
+		ZString z = reg.zstr_tcopy();
+		sdl::setClipboardText((char*)z);
+	}
+}
+
+fn void apply_op(char op, int y0, int y1, bool linewise) {
+	apply_op_range(op, y0, 0, y1, line_len(y1), linewise);
+}
+
+
+fn void normal_key(int sym) {
+	bool shift = (sdl::getModState() & 0x0003) != (Keymod)0;
+
+	if (pending != 0) {
+		char op = pending;
+		switch (sym) {
+			case 100: if (op == 'd') apply_op('d', core.cy, core.cy, true);
+			case 121: if (op == 'y') apply_op('y', core.cy, core.cy, true);
+			case 103:
+				if (shift) {
+					apply_op(op, core.cy, core.numrows - 1, true);
+				} else if (pending2 == 'g') {
+					apply_op(op, 0, core.cy, true);
+				} else {
+					pending2 = 'g';
+				}
+			case 27: pending = 0; pending2 = 0;
+			case 52:
+				if (shift) apply_op_range(op, core.cy, core.cx, core.cy, line_len(core.cy) - 1, false);
+			default: pending = 0; pending2 = 0;
+		}
+		return;
+	}
+
+	switch (sym) {
+		case 104: core.moveCursor(Direction.LEFT);
+		case 108: core.moveCursor(Direction.RIGHT);
+		case 107: core.moveCursor(Direction.UP);
+		case 106: core.moveCursor(Direction.DOWN);
+
+		case 105:
+			if (mode == Mode.NORMAL) {
+				mode = Mode.INSERT;
+				swallow_text = true;
 			}
-			else
-			{
+
+		case 118:
+			if (mode == Mode.VISUAL || mode == Mode.VISUAL_LINE) {
+				mode = Mode.NORMAL;
+			} else {
 				sel_x = core.cx;
 				sel_y = core.cy;
 				mode = shift ? Mode.VISUAL_LINE : Mode.VISUAL;
 			}
 
-		case 27:                                     // esc
+		case 100:
+			if (mode == Mode.VISUAL) {
+				apply_op_range('d', sel_y, sel_x, core.cy, core.cx, false);
+			} else if (mode == Mode.VISUAL_LINE) {
+				apply_op('d', sel_y, core.cy, true);
+			} else {
+				pending = 'd';
+			}
+
+		case 121:
+			if (mode == Mode.VISUAL) {
+				apply_op_range('y', sel_y, sel_x, core.cy, core.cx, false);
+			} else if (mode == Mode.VISUAL_LINE) {
+				apply_op('y', sel_y, core.cy, true);
+			} else {
+				pending = 'y';
+			}
+
+		case 112: paste();
+
+		case 52: // 4 / $
+			if (shift) core.cursorLineEnd();
+
+		case 103:
+			if (shift) {
+				core.setCursorLine(core.numrows - 1);
+			} else if (pending2 == 'g') {
+				core.setCursorLine(0);
+				pending2 = 0;
+			} else {
+				pending2 = 'g';
+			}
+
+		case 27:
 			mode = Mode.NORMAL;
 			pending = 0;
 			pending2 = 0;
+
+		case 111: // o / O
+			if (shift) {
+				core.cx = 0;
+				core.insertNewline();
+				core.moveCursor(Direction.UP);
+			} else {
+				core.cx = line_len(core.cy);
+				core.insertNewline();
+			}
+			mode = Mode.INSERT;
+			swallow_text = true;
+		case 55: // 7 / /
+			if (shift) {
+				searching = true;
+				search_len = 0;
+				pre_search_y = core.cy;
+				pre_search_x = core.cx;
+				ui::ui.focus = 2;
+			}
+
+		case 110: // n / N
+			if (last_search.len > 0) {
+				Match m = core.find(last_search, core.cy, core.cx + (shift ? 0 : 1), !shift, true);
+				if (m.found) {
+					core.cy = m.y;
+					core.cx = m.x;
+				}
+			}
 
 		case 1073741904: core.moveCursor(Direction.LEFT);
 		case 1073741903: core.moveCursor(Direction.RIGHT);
 		case 1073741906: core.moveCursor(Direction.UP);
 		case 1073741905: core.moveCursor(Direction.DOWN);
 		default: break;
+	}
+}
+
+fn void paste() {
+	if (sdl::hasClipboardText()) {
+		char* raw         = sdl::getClipboardText();
+		String ext        = ((ZString)raw).str_view();
+		bool ext_linewise = ext.len > 0 && ext[ext.len - 1] == '\n';
+
+		if (ext_linewise) {
+			core.cx = line_len(core.cy);
+			core.insertNewline();
+			core.insertText(ext.len > 0 ? ext[:ext.len - 1] : ext);
+		} else {
+			core.insertText(ext);
+		}
+		sdl::free(raw);
+		return;
+	}
+
+	if (reg.len == 0) return;
+	if (reg_linewise) {
+		core.cx = line_len(core.cy);
+		core.insertNewline();
+		core.insertText(reg);
+	} else {
+		core.insertText(reg);
+	}
+}
+fn void search_update() {
+	if (search_len == 0) {
+		core.cy = pre_search_y;
+		core.cx = pre_search_x;
+		return;
+	}
+	Match m = core.find((String)search_buf[:search_len], pre_search_y, pre_search_x, true, true);
+	if (m.found) {
+		core.cy = m.y;
+		core.cx = m.x;
 	}
 }

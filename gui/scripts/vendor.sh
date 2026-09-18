@@ -8,6 +8,16 @@ cd "$(dirname "$0")/../vendor"
 [ -f stb_truetype.h ] || curl -sLO \
   https://raw.githubusercontent.com/nothings/stb/master/stb_truetype.h
 
+[ -d ts-c ] || git clone --depth 1 https://github.com/tree-sitter/tree-sitter-c ts-c
+[ -d ts-py ] || git clone --depth 1 https://github.com/tree-sitter/tree-sitter-python ts-py
+
+cc -O2 -Its-c/src -c ts-c/src/parser.c -o ts-c-parser.o
+ar rcs libtsc.a ts-c-parser.o
+
+cc -O2 -Its-py/src -c ts-py/src/parser.c  -o ts-py-parser.o
+cc -O2 -Its-py/src -c ts-py/src/scanner.c -o ts-py-scanner.o
+ar rcs libtspy.a ts-py-parser.o ts-py-scanner.o
+
 printf '#define STB_TRUETYPE_IMPLEMENTATION\n#include "stb_truetype.h"\n' > stb_impl.c
 cc -O2 -c stb_impl.c -o stb_impl.o && ar rcs libstb.a stb_impl.o
 

@@ -6,17 +6,14 @@ import ts;
 import core;
 
 const char[*] C3_QUERY = $embed("../vendor/ts-c3/queries/highlights.scm");
+const char[*] C_QUERY  = $embed("../vendor/ts-c/queries/highlights.scm");
+const char[*] PY_QUERY = $embed("../vendor/ts-py/queries/highlights.scm");
 
-struct Span {
-	int row;
-	int col0, col1;
-	int colour;
-}
 
 const int MAX_ROWS = 4096;
 const int MAX_COLS = 512;
 
-char[MAX_COLS][MAX_ROWS] colours;   // palette index per cell
+char[MAX_COLS][MAX_ROWS] colours; // palette index per cell
 List{Span} spans;
 int used_rows;
 void* parser;
@@ -25,18 +22,57 @@ int last_dirty = -1;
 void* query;
 void* cursor;
 
-fn void init() {
-	parser = ts::parser_new();
-	ts::parser_set_language(parser, ts::tree_sitter_c3());
+Lang lang_c3, lang_c, lang_py;
+Lang* active;
+String active_name = "";
 
-	uint err_off;
-	int  err_type;
-	query = ts::query_new(ts::tree_sitter_c3(), &C3_QUERY[0], (uint)C3_QUERY.len,
-		&err_off, &err_type);
-	cursor = ts::query_cursor_new();
+struct Span {
+	int row;
+	int col0, col1;
+	int colour;
 }
 
+struct Lang {
+	void* language;
+	void* query;
+}
+fn Lang make_lang(void* language, char* src, uint len) {
+	uint err_off;
+	int err_type;
+	Lang l;
+	l.language = language;
+	l.query = ts::query_new(language, src, len, &err_off, &err_type);
+	if (!l.query) io::printfn("query failed: type %d at %d", err_type, err_off);
+	return l;
+}
+
+fn void init() {
+	parser = ts::parser_new();
+	cursor = ts::query_cursor_new();
+	lang_c3 = make_lang(ts::tree_sitter_c3(), &C3_QUERY[0], (uint)C3_QUERY.len);
+	lang_c = make_lang(ts::tree_sitter_c(), &C_QUERY[0], (uint)C_QUERY.len);
+	lang_py = make_lang(ts::tree_sitter_python(), &PY_QUERY[0], (uint)PY_QUERY.len);
+}
 fn void refresh(EditorCore* ed) {
+	if (ed.ft.name != active_name) {
+		active_name = ed.ft.name;
+		if (active_name == "c3") {
+			active = &lang_c3;
+		} else if (active_name == "c") {
+			active = &lang_c;
+		} else if (active_name == "python") {
+			active = &lang_py;
+		} else {
+			active = null;
+		}
+
+		if (active) ts::parser_set_language(parser, active.language);
+		last_dirty = -1; // force a reparse
+	}
+	if (!active) {
+		used_rows = 0;
+		return;
+	}
 	if (ed.dirty == last_dirty) return;
 	last_dirty = ed.dirty;
 
@@ -51,16 +87,20 @@ fn void refresh(EditorCore* ed) {
 		for (int c = 0; c < MAX_COLS; c++) colours[r][c] = 0;
 	}
 
-	ts::query_cursor_exec(cursor, query, ts::tree_root_node(tree));
+	ts::query_cursor_exec(cursor, active.query, ts::tree_root_node(tree));
 
 	TSQueryMatch m;
 	while (ts::query_cursor_next_match(cursor, &m)) {
+		uint steps;
+		ts::query_predicates_for_pattern(active.query, (uint)m.pattern_index, &steps);
+		if (steps > 0) continue;
+
 		for (int i = 0; i < (int)m.capture_count; i++) {
 			TSQueryCapture cap = m.captures[i];
 
 			uint nlen;
-			char* nptr = ts::query_capture_name_for_id(query, cap.index, &nlen);
-			int pal = palette_for((String)((char*)nptr)[:nlen]);
+			char* nptr = ts::query_capture_name_for_id(active.query, cap.index, &nlen);
+			int pal    = palette_for((String)((char*)nptr)[:nlen]);
 			if (pal == 0) continue;
 
 			TSPoint a = ts::node_start_point(cap.node);
@@ -83,19 +123,50 @@ fn int at(int row, int col) {
 
 fn int classify(String t) {
 	switch (t) {
-		case "alias": case "asm": case "attrdef": case "attrmacro":
-		case "catch": case "defer": case "try": case "var":
-		case "fn": case "macro": case "return":
-		case "import": case "module": case "assert":
-		case "bitstruct": case "enum": case "excuse": case "faultdef":
-		case "faultset": case "interface": case "struct": case "typedef":
-		case "distinct": case "union": case "constdef": case "constset":
+		case "alias":
+		case "asm":
+		case "attrdef":
+		case "attrmacro":
+		case "catch":
+		case "defer":
+		case "try":
+		case "var":
+		case "fn":
+		case "macro":
+		case "return":
+		case "import":
+		case "module":
+		case "assert":
+		case "bitstruct":
+		case "enum":
+		case "excuse":
+		case "faultdef":
+		case "faultset":
+		case "interface":
+		case "struct":
+		case "typedef":
+		case "distinct":
+		case "union":
+		case "constdef":
+		case "constset":
 		case "cenum":
-		case "case": case "default": case "else": case "if":
-		case "nextcase": case "switch":
-		case "break": case "continue": case "do": case "for":
-		case "foreach": case "foreach_r": case "while":
-		case "const": case "extern": case "inline": case "static":
+		case "case":
+		case "default":
+		case "else":
+		case "if":
+		case "nextcase":
+		case "switch":
+		case "break":
+		case "continue":
+		case "do":
+		case "for":
+		case "foreach":
+		case "foreach_r":
+		case "while":
+		case "const":
+		case "extern":
+		case "inline":
+		case "static":
 		case "tlocal":
 			return 1;
 		case "comment":
@@ -112,7 +183,9 @@ fn int classify(String t) {
 		case "base_type_name":
 			return 5;
 		case "const_ident":
-		case "true": case "false": case "null":
+		case "true":
+		case "false":
+		case "null":
 			return 6;
 		default:
 			return 0;
@@ -140,28 +213,34 @@ fn void walk(TSNode n) {
 }
 
 fn int palette_for(String name) {
-	if (name.starts_with("keyword"))     return 1;
-	if (name.starts_with("comment"))     return 2;
-	if (name.starts_with("string"))      return 3;
-	if (name.starts_with("character"))   return 3;
-	if (name.starts_with("number"))      return 4;
-	if (name.starts_with("boolean"))     return 6;
-	if (name.starts_with("type"))        return 5;
-	if (name.starts_with("function"))    return 7;
-	if (name.starts_with("constant"))    return 6;
+	if (name.starts_with("keyword")) return 1;
+	if (name.starts_with("comment")) return 2;
+	if (name.starts_with("string")) return 3;
+	if (name.starts_with("escape")) return 3;
+	if (name.starts_with("character")) return 3;
+	if (name.starts_with("number")) return 4;
+	if (name.starts_with("boolean")) return 6;
+	if (name.starts_with("type")) return 5;
+	if (name.starts_with("constructor")) return 5;
+	if (name.starts_with("function")) return 7;
+	if (name.starts_with("constant")) return 6;
+	if (name.starts_with("property")) return 8;
 	if (name.starts_with("variable.member")) return 8;
 	if (name.starts_with("variable.parameter")) return 9;
-	if (name.starts_with("variable"))    return 0;
+	if (name.starts_with("variable")) return 0;
 	if (name.starts_with("punctuation")) return 10;
-	if (name.starts_with("operator"))    return 10;
+	if (name.starts_with("delimiter")) return 10;
+	if (name.starts_with("operator")) return 10;
+	if (name.starts_with("attribute")) return 6;
+	if (name.starts_with("label")) return 1;
+	if (name.starts_with("module")) return 5;
 	return 0;
 }
+
 fn void query_test() {
 	uint err_off;
-	int  err_type;
-	void* q = ts::query_new(ts::tree_sitter_c3(),
-		&C3_QUERY[0], (uint)C3_QUERY.len,
-		&err_off, &err_type);
+	int err_type;
+	void* q = ts::query_new(ts::tree_sitter_c3(), &C3_QUERY[0], (uint)C3_QUERY.len, &err_off, &err_type);
 
 	if (!q) {
 		io::printfn("query failed: type %d at byte %d", err_type, err_off);

@@ -15,7 +15,9 @@
 		"GL",
 		"stb",
 		"treesitter",
-		"tsc3"
+		"tsc3",
+		"tsc",
+		"tspy"
 	],
 	"link-args": [
 		"-Lvendor"

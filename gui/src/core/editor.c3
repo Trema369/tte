@@ -10,6 +10,11 @@ enum Direction {
 	DOWN
 }
 
+struct Match {
+	int y, x;
+	bool found;
+}
+
 // ---------- helpers ----------
 
 fn String leadingWhitespace(String s) {
@@ -285,4 +290,116 @@ fn usz? EditorCore.save(&self) {
 	usz n = (usz)fd.write(data)!;
 	self.dirty = 0;
 	return n;
+}
+
+fn String EditorCore.copyRange(&self, int y0, int x0, int y1, int x1) => @pool() {
+	if (y0 < 0 || y1 >= self.numrows) return "";
+
+	DString s = dstring::temp_with_capacity(256);
+	for (int y = y0; y <= y1; y++) {
+		String row = self.rows[y].chars;
+		int a      = y == y0 ? x0 : 0;
+		int b      = y == y1 ? x1 : (int)row.len;
+		if (a > (int)row.len) a = (int)row.len;
+		if (b > (int)row.len) b = (int)row.len;
+		if (a < b) s.append(row[a:b - a]);
+		if (y < y1) s.append("\n");
+	}
+	return s.str_view().copy(mem);
+}
+
+fn void EditorCore.deleteRange(&self, int y0, int x0, int y1, int x1) => @pool() {
+	if (y0 < 0 || y1 >= self.numrows) return;
+
+	String first = self.rows[y0].chars;
+	String last  = self.rows[y1].chars;
+	if (x0 > (int)first.len) x0 = (int)first.len;
+	if (x1 > (int)last.len) x1 = (int)last.len;
+
+	DString s = dstring::temp_with_capacity(256);
+	s.append(first[:x0]);
+	if (x1 < last.len) s.append(last[x1..]);
+
+	for (int y = y1; y > y0; y--) self.delRow(y);
+
+	mem::free(self.rows[y0].chars.ptr);
+	self.rows[y0].chars = s.str_view().copy(mem);
+
+	self.cy = y0;
+	self.cx = x0;
+	self.dirty++;
+}
+
+fn void EditorCore.insertText(&self, String text) {
+	foreach (c : text) {
+		if (c == '\n') {
+			self.insertNewline();
+		} else {
+			self.insertChar(c);
+		}
+	}
+}
+
+
+fn int find_in(String hay, String needle, int from, bool ignore_case) @public {
+	if (needle.len == 0 || needle.len > hay.len) return -1;
+	for (int i = from; i <= (int)(hay.len - needle.len); i++) {
+		bool hit = true;
+		for (int j = 0; j < (int)needle.len; j++) {
+			char a = hay[i + j];
+			char b = needle[j];
+			if (ignore_case) {
+				if (a >= 'A' && a <= 'Z') a += 32;
+				if (b >= 'A' && b <= 'Z') b += 32;
+			}
+			if (a != b) {
+				hit = false;
+				break;
+			}
+		}
+		if (hit) return i;
+	}
+	return -1;
+}
+
+fn Match EditorCore.find(&self, String needle, int from_y, int from_x, bool forward, bool ignore_case) {
+	Match m;
+	m.found = false;
+	if (needle.len == 0 || self.numrows == 0) return m;
+
+	for (int n = 0; n <= self.numrows; n++) {
+		int y = forward ? from_y + n : from_y - n;
+		while (y < 0) y += self.numrows;
+		while (y >= self.numrows) y -= self.numrows;
+
+		String row = self.rows[y].chars;
+
+		if (forward) {
+			int start = (n == 0) ? from_x : 0;
+			int i     = find_in(row, needle, start, ignore_case);
+			if (i >= 0) {
+				m.y = y;
+				m.x = i;
+				m.found = true;
+				return m;
+			}
+		} else {
+			int limit =  (n == 0) ? from_x : (int)row.len;
+			int best  = -1;
+			int i     =  0;
+			while (true) {
+				int f = find_in(row, needle, i, ignore_case);
+				if (f < 0 || f >= limit) break;
+				best = f;
+				i = f + 1;
+			}
+			if (best >= 0) {
+				m.y = y;
+				m.x = best;
+				m.found = true;
+				return m;
+			}
+		}
+	}
+	return m;
 }
