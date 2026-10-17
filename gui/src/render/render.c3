@@ -12,14 +12,7 @@ import font;
 import tte::ui;
 import highlight;
 
-enum Mode {
-	NORMAL,
-	INSERT,
-	VISUAL,
-	VISUAL_LINE
-}
-
-Mode mode          = Mode.NORMAL;
+Mode mode          = state::Mode.NORMAL;
 int sel_x, sel_y;
 char pending;
 char pending2;
@@ -31,20 +24,6 @@ String last_search = "";
 int pre_search_y, pre_search_x;
 String reg         = "";
 bool reg_linewise;
-
-const float[4][11] PALETTE = {
-	{ 0.85f, 0.85f, 0.87f, 1.0f }, // 0 default / variable
-	{ 0.98f, 0.75f, 0.35f, 1.0f }, // 1 keyword
-	{ 0.45f, 0.50f, 0.55f, 1.0f }, // 2 comment
-	{ 0.55f, 0.80f, 0.45f, 1.0f }, // 3 string
-	{ 0.80f, 0.60f, 0.95f, 1.0f }, // 4 number
-	{ 0.45f, 0.75f, 0.90f, 1.0f }, // 5 type
-	{ 0.95f, 0.55f, 0.55f, 1.0f }, // 6 constant / boolean
-	{ 0.60f, 0.80f, 0.98f, 1.0f }, // 7 function
-	{ 0.85f, 0.75f, 0.60f, 1.0f }, // 8 member
-	{ 0.90f, 0.70f, 0.85f, 1.0f }, // 9 parameter
-	{ 0.55f, 0.55f, 0.60f, 1.0f } // 10 punctuation / operator
-	};
 
 EditorCore core;
 Camera cam;
@@ -65,7 +44,7 @@ uint last_ticks;
 bool cursor_moved;
 uint last_input_ms;
 const uint IDLE_MS = 500;
-
+/*shaders*/
 const char[*] FONT_TTF    = $embed("../../assets/font.ttf");
 const String VSHADER      = "../shaders/vertex.glsl";
 const String FSHADER      = "../shaders/fragment.glsl";
@@ -79,6 +58,8 @@ const float PAD_X         = 16.0f;
 const float PAD_Y         = 12.0f;
 const int MEASURE_ROWS    = 20;
 float[MAX_QUADS * VERTS_PER_QUAD * FLOATS_PER_VERT] batch;
+
+/*v-sync*/
 int batch_verts;
 ulong perf_last;
 ulong perf_freq;
@@ -248,7 +229,7 @@ fn void init(String[] args, Window* window) {
 						do_save();
 					} else if (mode == Mode.INSERT) {
 						switch (sym) {
-							case 27: mode = Mode.NORMAL;
+                            case 27: state::mode = state::Mode.NORMAL;
 							case 13: core.insertNewline();
 							case 8: core.delChar();
 							case 9: core.insertTab();
@@ -728,7 +709,7 @@ fn float draw_text_hl(String text, float x, float y, int row) {
 		if (c < 32 || c >= 127) continue;
 
 		int ci       = highlight::at(row, i);
-		float[4] col = PALETTE[ci];
+		float[4] col = highlight::PALETTE[ci];
 
 		AlignedQuad q;
 		stbtt::get_baked_quad(&font::chardata[0], font::ATLAS_W, font::ATLAS_H, (CInt)c - 32, &xpos, &ypos, &q, 1);
@@ -818,7 +799,7 @@ fn void apply_op_range(char op, int y0, int x0, int y1, int x1, bool linewise) {
 	}
 	pending = 0;
 	pending2 = 0;
-	mode = Mode.NORMAL;
+    state::mode = state::Mode.NORMAL;
 	if (reg.len) {
 		ZString z = reg.zstr_tcopy();
 		sdl::setClipboardText((char*)z);
@@ -861,14 +842,14 @@ fn void normal_key(int sym) {
 		case 106: core.moveCursor(Direction.DOWN);
 
 		case 105:
-			if (mode == Mode.NORMAL) {
-				mode = Mode.INSERT;
+			if (state::mode == state::Mode.NORMAL) {
+                state::mode = state::Mode.INSERT;
 				swallow_text = true;
 			}
 
 		case 118:
 			if (mode == Mode.VISUAL || mode == Mode.VISUAL_LINE) {
-				mode = Mode.NORMAL;
+                state::mode = state::Mode.NORMAL;
 			} else {
 				sel_x = core.cx;
 				sel_y = core.cy;
@@ -909,7 +890,7 @@ fn void normal_key(int sym) {
 			}
 
 		case 27:
-			mode = Mode.NORMAL;
+            state::mode = state::Mode.NORMAL;
 			pending = 0;
 			pending2 = 0;
 

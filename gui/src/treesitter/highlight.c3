@@ -5,13 +5,29 @@ import std::collections::list;
 import ts;
 import core;
 
-const char[*] C3_QUERY = $embed("../vendor/ts-c3/queries/highlights.scm");
-const char[*] C_QUERY  = $embed("../vendor/ts-c/queries/highlights.scm");
-const char[*] PY_QUERY = $embed("../vendor/ts-py/queries/highlights.scm");
+const char[*] C3_QUERY = $embed("../../vendor/ts-c3/queries/highlights.scm");
+const char[*] C_QUERY  = $embed("../../vendor/ts-c/queries/highlights.scm");
+const char[*] PY_QUERY = $embed("../../vendor/ts-py/queries/highlights.scm");
 
 
 const int MAX_ROWS = 4096;
 const int MAX_COLS = 512;
+
+const float[4][11] PALETTE = {  
+	{ 0.85f, 0.85f, 0.87f, 1.0f }, // 0 default / variable
+	{ 0.98f, 0.75f, 0.35f, 1.0f }, // 1 keyword
+	{ 0.45f, 0.50f, 0.55f, 1.0f }, // 2 comment
+	{ 0.55f, 0.80f, 0.45f, 1.0f }, // 3 string
+	{ 0.80f, 0.60f, 0.95f, 1.0f }, // 4 number
+	{ 0.45f, 0.75f, 0.90f, 1.0f }, // 5 type
+	{ 0.95f, 0.55f, 0.55f, 1.0f }, // 6 constant / boolean
+	{ 0.60f, 0.80f, 0.98f, 1.0f }, // 7 function
+	{ 0.85f, 0.75f, 0.60f, 1.0f }, // 8 member
+	{ 0.90f, 0.70f, 0.85f, 1.0f }, // 9 parameter
+	{ 0.55f, 0.55f, 0.60f, 1.0f } // 10 punctuation / operator
+};
+
+
 
 char[MAX_COLS][MAX_ROWS] colours; // palette index per cell
 List{Span} spans;

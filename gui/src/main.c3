@@ -11,7 +11,6 @@ import ts;
 
 int screenW;
 int screenH;
-uint frames;
 
 fn int main(String[] args)
 {
@@ -27,7 +26,7 @@ fn int main(String[] args)
 	sdl::glSetAttribute(GLattr.GL_CONTEXT_PROFILE_MASK, 0x0001);
 	sdl::glSetAttribute(GLattr.GL_DOUBLEBUFFER, 1);
 
-	ZString title = "learn opengl";
+	ZString title = "TTE";
 	DisplayMode dm;
 	sdl::getCurrentDisplayMode(0, &dm);
 	screenW = (int)((float)dm.w * 0.85f);
